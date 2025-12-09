@@ -16,6 +16,8 @@ class GAS_AURA_API AAuraEnemy : public AAuraCharacterBase, public IEnemyInterfac
 	GENERATED_BODY()
 
 public:
+	AAuraEnemy();
+	
 	virtual void HighlightActor() override;
 	virtual void UnHighlightActor() override;
 };
