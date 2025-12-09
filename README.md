@@ -929,6 +929,81 @@ if (ThisActor != nullptr && ThisActor != LastActor)   // 需要高亮的情况
 
   04:28
 
+### 🎮 AuraPlayerState 玩家状态类
+
+  #### **类定义**
+  ```cpp
+  UCLASS()
+  class GAS_AURA_API AAuraPlayerState : public APlayerState
+  ```
+  - **继承自** `APlayerState`：UE内置玩家状态基类
+  - **功能**：存储玩家游戏数据（经验值、等级、属性点等）
+
+  #### **构造函数配置**
+  ```cpp
+  AAuraPlayerState::AAuraPlayerState()
+  {
+      NetUpdateFrequency = 100.f;  // 设置网络更新频率为100Hz
+  }
+  ```
+
+  #### **关键参数解析**
+  | 参数                      | 类型    | 默认值 | 功能说明                 |
+  | ------------------------- | ------- | ------ | ------------------------ |
+  | `NetUpdateFrequency`      | `float` | `2.0f` | 网络更新频率（单位：Hz） |
+  | `MinNetUpdateFrequency`   | `float` | `2.0f` | 最小更新频率             |
+  | `bReplicateRelevancyInfo` | `bool`  | `true` | 是否复制相关性信息       |
+
+  #### **NetUpdateFrequency 详解**
+  ```cpp
+  // 不同场景的设置建议
+  NetUpdateFrequency = 100.f;  // 高频：MOBA、射击游戏
+  NetUpdateFrequency = 30.f;   // 中频：RPG、动作游戏
+  NetUpdateFrequency = 2.f;    // 低频：棋牌、策略游戏（默认值）
+  
+  // 实际更新间隔 = 1 / NetUpdateFrequency
+  // 100Hz → 每0.01秒更新一次
+  // 30Hz  → 每0.033秒更新一次
+  // 2Hz   → 每0.5秒更新一次
+  ```
+
+  #### **网络同步流程**
+  ```
+  服务器端 PlayerState
+      ↓ 网络复制（100Hz）
+  客户端 PlayerState
+      ↓
+  更新玩家UI、属性显示等
+  ```
+
+  #### **典型应用场景**
+  ```cpp
+  // 存储玩家数据
+  UPROPERTY(Replicated)
+  int32 PlayerLevel;          // 玩家等级
+  
+  UPROPERTY(Replicated)
+  float ExperiencePoints;     // 经验值
+  
+  UPROPERTY(Replicated)
+  int32 AttributePoints;      // 属性点数
+  
+  // 后续可扩展
+  UPROPERTY(Replicated)
+  FString PlayerName;         // 玩家名称
+  
+  UPROPERTY(Replicated)
+  int32 Gold;                 // 金币数量
+  ```
+
+  #### **设计考虑**
+  1. **高频更新**：确保属性变化即时同步
+  2. **带宽控制**：100Hz比默认2Hz消耗更多带宽
+  3. **游戏类型适配**：根据需求调整频率
+  4. **GAS集成**：为后续Gameplay Ability System做准备
+
+  **核心作用**：作为玩家数据的网络同步载体，为RPG系统提供基础支持。
+
 - 
 
   Ability System Component and Attribute Set
@@ -947,11 +1022,209 @@ if (ThisActor != nullptr && ThisActor != LastActor)   // 需要高亮的情况
 
   12:13
 
+### 🏗️ **GAS 架构设计：分离式组件挂载**
+
+  #### **核心架构对比**
+
+  | 组件         | 玩家角色             | 敌人角色           | 设计原因               |
+  | ------------ | -------------------- | ------------------ | ---------------------- |
+  | **ASC**      | 挂载在 `PlayerState` | 挂载在 `EnemyBase` | 玩家数据需要跨关卡保存 |
+  | **AS**       | 挂载在 `PlayerState` | 挂载在 `EnemyBase` | 属性与角色生命期绑定   |
+  | **网络复制** | `PlayerState` 复制   | `Enemy` 自身复制   | 玩家状态持久化需求     |
+
+  #### **1. 抽象基类设计**
+
+  ##### **接口实现**
+  ```cpp
+  // 头文件：AuraCharacterBase.h
+  class AAuraCharacterBase : public ACharacter, public IAbilitySystemInterface
+  {
+      GENERATED_BODY()
+  public:
+      virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+      UAttributeSet* GetAttributeSet() const { return AttributeSet; };
+      
+  protected:
+      UPROPERTY()
+      TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;  // ASC指针
+  
+      UPROPERTY()
+      TObjectPtr<UAttributeSet> AttributeSet;  // 属性集指针
+  };
+  ```
+
+  ##### **接口方法实现**
+  ```cpp
+  // 源文件：AuraCharacterBase.cpp
+  UAbilitySystemComponent* AAuraCharacterBase::GetAbilitySystemComponent() const
+  {
+      return AbilitySystemComponent;  // 返回ASC指针
+  }
+  ```
+
+  #### **2. 玩家实现：PlayerState 挂载**
+
+  ##### **构造函数初始化**
+  ```cpp
+  // AuraPlayerState.cpp
+  AAuraPlayerState::AAuraPlayerState()
+  {
+      // 创建ASC组件
+      AbilitySystemComponent = CreateDefaultSubobject<UAuraAbilitySystemComponent>("AbilitySystemComponent");
+      AbilitySystemComponent->SetIsReplicated(true);  // 启用网络复制
+      
+      // 创建属性集
+      AttributeSet = CreateDefaultSubobject<UAuraAttributeSet>("Attributeset");
+      
+      NetUpdateFrequency = 100.f;  // 高频网络更新
+  }
+  ```
+
+  ##### **玩家角色获取ASC**
+  ```cpp
+  // 玩家角色需要通过PlayerState获取ASC
+  AAuraPlayerState* PlayerState = GetPlayerState<AAuraPlayerState>();
+  if (PlayerState)
+  {
+      UAbilitySystemComponent* ASC = PlayerState->GetAbilitySystemComponent();
+      UAttributeSet* AS = PlayerState->GetAttributeSet();
+  }
+  ```
+
+  #### **3. 敌人实现：Enemy 自身挂载**
+
+  ##### **构造函数初始化**
+  ```cpp
+  // AuraEnemy.cpp
+  AAuraEnemy::AAuraEnemy()
+  {
+      // 碰撞设置（保持不变）
+      GetMesh()->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+      GetMesh()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+      
+      // 创建ASC组件（直接挂载到敌人）
+      AbilitySystemComponent = CreateDefaultSubobject<UAuraAbilitySystemComponent>("AbilitySystemComponent");
+      AbilitySystemComponent->SetIsReplicated(true);  // 启用网络复制
+      
+      // 创建属性集
+      AttributeSet = CreateDefaultSubobject<UAuraAttributeSet>("Attributeset");
+  }
+  ```
+
+  ##### **敌人角色获取ASC**
+  ```cpp
+  // 敌人可以直接从自身获取ASC
+  UAbilitySystemComponent* ASC = GetAbilitySystemComponent();  // 继承自基类
+  UAttributeSet* AS = GetAttributeSet();                       // 基类方法
+  ```
+
+  #### **4. 设计哲学分析**
+
+  ##### **玩家数据持久化**
+  ```cpp
+  // PlayerState的生命周期
+  进入游戏 → 创建PlayerState → 存储ASC/AS数据
+  死亡重生 → PlayerState保留 → 数据不丢失
+  退出关卡 → PlayerState销毁 → 需要保存到存档
+  ```
+
+  ##### **敌人临时性**
+  ```cpp
+  // Enemy的生命周期
+  关卡开始 → 生成敌人 → 创建ASC/AS
+  玩家击杀 → 敌人销毁 → ASC/AS同时销毁
+  关卡结束 → 所有敌人销毁 → 无需保存
+  ```
+
+  #### **5. 网络复制策略**
+
+  ##### **玩家复制模式**
+  ```cpp
+  // PlayerState中设置
+  AbilitySystemComponent->SetIsReplicated(true);
+  // 通常使用：Mixed（混合）或 Full（完全）复制
+  AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
+  ```
+
+  ##### **敌人复制模式**
+  ```cpp
+  // Enemy中设置（相同）
+  AbilitySystemComponent->SetIsReplicated(true);
+  // 通常使用：Minimal（最小）复制节省带宽
+  AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
+  ```
+
+  #### **6. 访问模式对比**
+
+  | 操作         | 玩家代码                                        | 敌人代码                      |
+  | ------------ | ----------------------------------------------- | ----------------------------- |
+  | **获取ASC**  | `GetPlayerState()->GetAbilitySystemComponent()` | `GetAbilitySystemComponent()` |
+  | **获取AS**   | `GetPlayerState()->GetAttributeSet()`           | `GetAttributeSet()`           |
+  | **应用效果** | 通过PlayerState的ASC                            | 直接通过自身ASC               |
+  | **监听属性** | 监听PlayerState的AS                             | 监听自身AS                    |
+
+  #### **7. 优势和考量**
+
+  ##### **优势**
+  1. **数据分离**：玩家进度与角色实体解耦
+  2. **持久化**：玩家死亡/重生不丢失属性
+  3. **网络优化**：PlayerState可独立复制频率
+  4. **存档友好**：PlayerState数据易于序列化
+
+  ##### **考量**
+  1. **访问路径**：玩家需通过PlayerState访问，增加间接性
+  2. **初始化时机**：需确保PlayerState在角色之前创建
+  3. **引用管理**：注意PlayerState与角色的生命周期差异
+
+  #### **总结**
+  这种**分离式架构**是多人RPG游戏的**最佳实践**：
+  - **玩家**：`PlayerState`作为数据容器，支持进度保存
+  - **敌人**：`Enemy`自身承载数据，简化生命周期管理
+
+  为后续的**属性系统**、**技能系统**和**伤害计算**奠定了坚实的架构基础。
+
 - 
 
   Replication Mode
 
   07:44
+
+### 🌐 **GAS 网络复制模式配置**
+
+  #### **1. 玩家状态：Mixed 复制模式**
+  ```cpp
+  // PlayerState 构造函数新增
+  AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
+  ```
+
+  ##### **Mixed 模式特点**
+  - **本地玩家**：接收完整的GameplayEffect数据
+  - **其他玩家**：只接收最小必要数据
+  - **适用场景**：玩家自己的角色（需要完整数据），AI控制的角色用Minimal
+
+  #### **2. 敌人：Minimal 复制模式**
+  ```cpp
+  // Enemy 构造函数新增  
+  AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
+  ```
+
+  ##### **Minimal 模式特点**
+  - **只复制**：GameplayTags和持续时间
+  - **不复制**：具体的属性修改值
+  - **适用场景**：AI敌人、小兵（带宽优化）
+
+  #### **3. 复制模式对比表**
+  | 模式        | 复制内容                             | 带宽消耗 | 适用对象               |
+  | ----------- | ------------------------------------ | -------- | ---------------------- |
+  | **Mixed**   | 完整数据（自己）<br>最小数据（他人） | 中等     | 玩家角色               |
+  | **Minimal** | 只复制标签和持续时间                 | 最低     | AI敌人                 |
+  | **Full**    | 完整数据给所有人                     | 最高     | 需要完全同步的特殊角色 |
+
+  #### **设计考虑**
+  1. **网络优化**：根据角色重要性选择复制模式
+  2. **带宽控制**：敌人用Minimal节省服务器资源  
+  3. **玩家体验**：本地玩家需要完整数据计算伤害等
+  4. **一致性**：保持接口实现的一致性
 
 - 
 
