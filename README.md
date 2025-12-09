@@ -36,7 +36,9 @@ Create a multiplayer RPG with Unreal Engine's Gameplay Ability System (GAS)! / �
 
   10:00
 
-- 
+ ![1](B:\UnrealEngine\Project\GAS_Aura\Images\1.png)
+
+Abstract关键字抽象类,防止此类被拖入场景 
 
   Player and Enemy Characters
 
