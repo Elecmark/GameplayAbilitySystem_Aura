@@ -35,10 +35,95 @@ Create a multiplayer RPG with Unreal Engine's Gameplay Ability System (GAS)! / �
   The Base Character Class
 
   10:00
+  
+- ### 🧙‍♀️ **AuraCharacterBase 基类分析**
 
- ![1](B:\UnrealEngine\Project\GAS_Aura\Images\1.png)
+  #### **类定义特性**
+  ```cpp
+  UCLASS(Abstract)  // 标记为抽象类，不能被实例化
+  ```
+  - **抽象基类**：只作为父类被继承，不能直接放置到关卡中
+  - **设计目的**：提供通用功能给英雄和敌人角色共享
 
-Abstract关键字抽象类,防止此类被拖入场景 
+  #### **构造函数核心实现**
+
+  ##### **1. Tick 系统禁用**
+  ```cpp
+  PrimaryActorTick.bCanEverTick = false;
+  ```
+  - **性能优化**：角色不需要每帧更新时禁用 Tick
+  - **典型场景**：AI 控制或简单动画的角色
+
+  ##### **2. 武器组件创建**
+  ```cpp
+  Weapon = CreateDefaultSubobject<USkeletalMeshComponent>("Weapon");
+  ```
+  - **`CreateDefaultSubobject`**：在构造函数中创建组件
+  - **命名规范**：给组件指定唯一名称便于调试
+
+  ##### **3. 武器附着系统**
+  ```cpp
+  Weapon->SetupAttachment(GetMesh(), FName("WeaponHandSocket"));
+  ```
+  - **附着到骨骼**：绑定到网格体的指定骨骼插槽
+  - **`FName("WeaponHandSocket")`**：使用骨骼插槽名称
+  - **动画同步**：武器随角色动画自然移动
+
+  ##### **4. 碰撞设置**
+  ```cpp
+  Weapon->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+  ```
+  - **`NoCollision`**：禁用武器所有碰撞
+  - **设计考虑**：
+    - 避免武器与环境的意外碰撞
+    - 伤害检测通过其他系统实现（如伤害盒）
+
+  #### **UPROPERTY 配置**
+  ```cpp
+  UPROPERTY(EditAnywhere, Category = "Combat")
+  TObjectPtr<USkeletalMeshComponent> Weapon;
+  ```
+  - **`EditAnywhere`**：可在蓝图实例和类默认值中编辑
+  - **`Category = "Combat"`**：在编辑器"Combat"分类下显示
+  - **`TObjectPtr`**：UE5 安全指针，自动处理垃圾回收
+
+  #### **架构设计意义**
+
+  ##### **继承结构**
+  ```
+  ACharacter (UE基类)
+      ↓
+  AAuraCharacterBase (项目基类)
+      ├── AHeroCharacter (玩家英雄)
+      └── AEnemyCharacter (敌人)
+  ```
+
+  ##### **职责分离**
+  1. **基类**：通用组件（武器、基础属性）
+  2. **派生类**：特定逻辑（玩家控制、AI行为）
+
+  #### **扩展建议**
+
+  ##### **武器系统增强**
+  ```cpp
+  // 可添加的扩展功能
+  virtual void EquipWeapon(USkeletalMesh* NewWeaponMesh);
+  virtual void Attack();
+  virtual void TakeDamage(float DamageAmount);
+  ```
+
+  ##### **GAS 集成预留**
+  ```cpp
+  // 为后续游戏技能系统准备
+  class UAbilitySystemComponent;
+  class UAttributeSet;
+  ```
+
+  #### **最佳实践**
+  - **抽象基类**：提取公共功能，减少代码重复
+  - **组件化设计**：武器作为独立组件便于更换
+  - **性能优化**：无Tick需求时及时禁用
+  - **碰撞分离**：攻击检测与渲染碰撞分开处理
 
   Player and Enemy Characters
 
@@ -73,6 +158,54 @@ Abstract关键字抽象类,防止此类被拖入场景
   Movement Input
 
   16:14
+
+- 🧙‍♂️ **AuraCharacterBase 基类分析**AuraPlayerController 分析
+
+  ### 🎮 **类功能概述**
+  - 自定义玩家控制器，管理输入系统和光标控制
+  - 使用 UE5 **增强输入系统（Enhanced Input）**
+  - 支持 **多人游戏网络复制**
+
+  ### 🔑 **核心特性**
+
+  #### **1. 构造函数设置**
+  ```cpp
+  bReplicates = true;  // 启用网络复制
+  ```
+  - **作用**：让服务器同步控制器状态到所有客户端
+
+  #### **2. 输入系统初始化**
+  ```cpp
+  Subsystem->AddMappingContext(AuraContext, 0);
+  ```
+  - **优先级 0**：基础输入上下文
+  - 使用 `EditAnywhere` 可在编辑器中灵活设置
+
+  #### **3. 光标控制配置**
+  ```cpp
+  bShowMouseCursor = true;
+  DefaultMouseCursor = EMouseCursor::Default;
+  ```
+  - 显示鼠标光标
+  - 使用默认光标样式
+
+  #### **4. 输入模式设置**
+  ```cpp
+  FInputModeGameAndUI InputModeData;
+  ```
+  - **游戏+UI混合模式**：同时处理游戏输入和UI交互
+  - **不锁定鼠标**：可自由移动出视口
+  - **输入时不隐藏光标**：保持可见性
+
+  ### ⚙️ **技术要点**
+  - **`check()`**：开发时断言验证资源有效性
+  - **`TObjectPtr`**：UE5 推荐的对象指针（自动垃圾回收）
+  - **`UEnhancedInputLocalPlayerSubsystem`**：管理输入上下文的核心系统
+
+  ### 🎯 **应用场景**
+  - 俯视角 RPG 游戏
+  - 需要鼠标交互的游戏
+  - 多人网络游戏
 
 - 
 
