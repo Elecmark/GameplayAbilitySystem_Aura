@@ -410,17 +410,504 @@ Create a multiplayer RPG with Unreal Engine's Gameplay Ability System (GAS)! / �
 
   06:38
 
+### 🎯 **Unreal Engine 接口系统深入解析**
+
+  #### **双类接口架构**
+
+  ##### **1. UInterface（反射类）**
+  ```cpp
+  UINTERFACE(MinimalAPI)
+  class UEnemyInterface : public UInterface
+  {
+      GENERATED_BODY()
+  };
+  ```
+  - **`UINTERFACE`**：UE宏，声明反射接口类
+  - **`MinimalAPI`**：仅导出必要函数，减少编译依赖
+  - **继承自 `UInterface`**：UE接口基类
+  - **作用**：为反射系统提供类型信息，可在蓝图中使用
+
+  ##### **2. IInterface（功能类）**
+  ```cpp
+  class GAS_AURA_API IEnemyInterface
+  {
+      GENERATED_BODY()
+  public:
+      virtual void HighlightActor() = 0;    // 纯虚函数
+      virtual void UnHighlightActor() = 0;  // 纯虚函数
+  };
+  ```
+  - **功能承载**：实际定义接口方法
+  - **`GENERATED_BODY`**：允许使用UE反射功能
+  - **核心**：纯虚函数声明，强制派生类实现
+
+---
+
+  #### ⚡ **纯虚函数详解**
+
+  ##### **语法特征**
+  ```cpp
+  virtual void FunctionName() = 0;
+  ```
+  - **`= 0`**：纯虚函数标记
+  - **抽象性**：没有默认实现
+  - **强制性**：派生类必须实现
+
+  ##### **纯虚函数 vs 普通虚函数**
+
+  | 特性     | 纯虚函数             | 普通虚函数       |
+  | -------- | -------------------- | ---------------- |
+  | 定义     | `= 0`                | 有默认实现       |
+  | 实现要求 | **必须**在派生类实现 | 可选覆盖         |
+  | 类类型   | 使类成为**抽象类**   | 不强制           |
+  | 实例化   | **不能**直接实例化   | 可以直接实例化   |
+  | UE中用途 | 接口定义             | 基类提供默认行为 |
+
+---
+
+  #### 🏗️ **接口设计模式**
+
+  ##### **1. 角色高亮接口**
+  ```cpp
+  // 敌人交互可视化
+  virtual void HighlightActor() = 0;    // 鼠标悬停时高亮
+  virtual void UnHighlightActor() = 0;  // 鼠标离开时取消高亮
+  ```
+
+  ##### **2. 实现示例**
+  ```cpp
+  // 在敌人角色类中实现
+  class AEnemyCharacter : public ACharacter, public IEnemyInterface
+  {
+  public:
+      virtual void HighlightActor() override
+      {
+          // 实现高亮逻辑：改变材质、添加轮廓等
+      }
+      
+      virtual void UnHighlightActor() override
+      {
+          // 恢复默认状态
+      }
+  };
+  ```
+
+---
+
+  #### 🔧 **UE接口系统工作机制**
+
+  ##### **反射系统集成**
+  ```cpp
+  // 接口检查
+  if (Actor->Implements<UEnemyInterface>())
+  {
+      IEnemyInterface* Enemy = Cast<IEnemyInterface>(Actor);
+      if (Enemy)
+      {
+          Enemy->HighlightActor();
+      }
+  }
+  ```
+
+  ##### **蓝图支持**
+  - 可在蓝图中实现接口
+  - 编辑器可识别接口类型
+  - 支持接口事件调度
+
+---
+
+  #### 🎮 **游戏中的应用场景**
+
+  ##### **敌人交互系统**
+  ```mermaid
+  flowchart TD
+      Player[玩家鼠标悬停] --> Check[检查接口]
+      Check -->|有接口| Highlight[调用高亮]
+      Check -->|无接口| Ignore[忽略]
+      PlayerLeave[鼠标离开] --> Unhighlight[取消高亮]
+  ```
+
+  ##### **多态调用**
+  ```cpp
+  // 统一处理不同类型的敌人
+  TArray<AActor*> Enemies;
+  for (AActor* Enemy : Enemies)
+  {
+      if (Enemy->Implements<UEnemyInterface>())
+      {
+          IEnemyInterface::Execute_HighlightActor(Enemy);
+      }
+  }
+  ```
+
+---
+
+  #### 💡 **设计优势**
+
+  ##### **1. 松耦合设计**
+  - 调用者不关心具体实现类
+  - 只需知道接口协议
+
+  ##### **2. 扩展性**
+  ```cpp
+  // 可轻松添加新接口
+  class IInteractable
+  {
+  public:
+      virtual void Interact() = 0;
+  };
+  
+  // 类实现多个接口
+  class AEnemy : public IEnemyInterface, public IInteractable
+  {
+      // 实现两个接口的方法...
+  };
+  ```
+
+  ##### **3. 类型安全**
+  - 编译时检查接口实现
+  - 避免运行时错误
+
+---
+
+  #### 🚀 **最佳实践**
+
+  ##### **接口命名规范**
+  - **`I` 前缀**：功能接口类（`IEnemyInterface`）
+  - **`U` 前缀**：反射接口类（`UEnemyInterface`）
+  - **清晰语义**：接口名描述能力而非身份
+
+  ##### **纯虚函数设计**
+  ```cpp
+  // 好的设计：职责单一
+  virtual void TakeDamage(float Damage) = 0;
+  
+  // 避免：功能过于复杂
+  virtual void HandleCombat(float Damage, FVector Location, AActor* Instigator) = 0;
+  ```
+
+  ##### **UE特定技巧**
+  ```cpp
+  // 蓝图可调用版本
+  UFUNCTION(BlueprintNativeEvent, BlueprintCallable)
+  void HighlightActor();
+  virtual void HighlightActor_Implementation();  // C++实现
+  
+  // 纯C++版本
+  virtual void HighlightActor() = 0;  // 强制实现
+  ```
+
+---
+
+  #### 📊 **总结对比**
+
+  | 方案         | 接口         | 继承       | 组件       |
+  | ------------ | ------------ | ---------- | ---------- |
+  | **适用场景** | 跨类共享能力 | 类层次关系 | 功能模块化 |
+  | **耦合度**   | **低**       | 高         | 中         |
+  | **灵活性**   | **高**       | 低         | **高**     |
+  | **UE集成**   | 蓝图友好     | 标准继承   | 编辑器友好 |
+  | **性能**     | 虚函数开销   | 虚函数开销 | 可能更高   |
+
+  **接口最适合**：定义"能做什么"而不是"是什么"，特别是需要跨不同类层次共享功能的场景。
+
 - 
 
   Highlight Enemies
 
   19:25
 
+### 🎯 **鼠标光标追踪与敌人高亮系统**
+
+  ##### **新增核心成员变量**
+  ```cpp
+  void CursorTrace();  // 光标追踪方法
+  TObjectPtr<IEnemyInterface> LastActor;  // 上一帧的敌人接口
+  TObjectPtr<IEnemyInterface> ThisActor;  // 当前帧的敌人接口
+  ```
+
+---
+
+  #### 🔍 **PlayerTick 集成**
+  ```cpp
+  virtual void PlayerTick(float DeltaTime) override;
+  ```
+  - **每帧调用**：启用 Actor Tick 系统
+  - **实时检测**：持续追踪鼠标下方的敌人
+  - **性能考虑**：简单的射线检测开销较小
+
+---
+
+  #### 🎮 **CursorTrace 方法详解**
+
+  ##### **1. 光线投射检测**
+  ```cpp
+  FHitResult CursorHit;
+  GetHitResultUnderCursor(ECC_Visibility, false, CursorHit);
+  ```
+  - **`GetHitResultUnderCursor`**：从光标位置发射射线
+  - **`ECC_Visibility`**：可见性碰撞通道
+  - **`false`**：不启用复杂碰撞检测
+  - **返回值**：包含击中信息的 `FHitResult`
+
+  ##### **2. 接口指针转换**
+  ```cpp
+  LastActor = ThisActor;  // 保存上一帧结果
+  ThisActor = Cast<IEnemyInterface>(CursorHit.GetActor());
+  ```
+  - **`Cast<IEnemyInterface>`**：尝试将 Actor 转换为敌人接口
+  - **自动转换**：如果 Actor 实现了接口，返回有效指针；否则返回 `nullptr`
+  - **指针传递**：使用 `TObjectPtr` 安全存储接口指针
+
+---
+
+  #### 🧠 **智能状态管理逻辑**
+
+  ##### **状态转移矩阵**
+  ```
+  上一帧 (LastActor)  当前帧 (ThisActor)  操作
+      null                null         无操作 (A)
+      null                有效         高亮当前 (B)
+      有效                null         取消高亮上一帧 (C)
+      有效                有效(不同)   取消高亮上一帧，高亮当前 (D)
+      有效                有效(相同)   无操作 (E)
+  ```
+
+  ##### **代码实现逻辑**
+  ```cpp
+  // 情况 C 和 D：需要取消上一帧的高亮
+  if (LastActor != nullptr && LastActor != ThisActor)
+  {
+      LastActor->UnHighlightActor();  // 调用接口方法
+  }
+  
+  // 情况 B 和 D：需要高亮当前帧
+  if (ThisActor != nullptr && ThisActor != LastActor)
+  {
+      ThisActor->HighlightActor();  // 调用接口方法
+  }
+  ```
+
+---
+
+  #### 💡 **设计亮点分析**
+
+  ##### **1. 无状态切换优化**
+  ```cpp
+  // 避免了重复调用
+  if (ThisActor == LastActor) return;  // 显式优化
+  // 但代码中通过条件判断隐式实现
+  ```
+
+  ##### **2. 接口安全调用**
+  ```cpp
+  // 空指针安全检查已包含在条件判断中
+  LastActor->UnHighlightActor();  // 仅在 LastActor 非空时调用
+  ```
+
+  ##### **3. 帧间连贯性**
+  - **平滑过渡**：从高亮到非高亮状态自然切换
+  - **无闪烁**：避免同一物体反复高亮/取消
+
+---
+
+  #### 🚀 **扩展可能性**
+
+  ##### **性能优化**
+  ```cpp
+  // 可添加距离检测
+  float Distance = FVector::Distance(GetPawn()->GetActorLocation(), 
+                                     CursorHit.Location);
+  if (Distance > MaxHighlightDistance) return;
+  ```
+
+  ##### **视觉效果增强**
+  ```cpp
+  // 可添加淡入淡出效果
+  void CursorTrace()
+  {
+      // 当前实现...
+      
+      // 扩展：根据距离调整高亮强度
+      if (ThisActor)
+      {
+          float Intensity = CalculateHighlightIntensity(CursorHit.Distance);
+          ThisActor->HighlightWithIntensity(Intensity);
+      }
+  }
+  ```
+
+  ##### **多目标支持**
+  ```cpp
+  // 未来可扩展为区域选择
+  TArray<TObjectPtr<IEnemyInterface>> HighlightedActors;
+  void HighlightArea(FVector Center, float Radius);
+  ```
+
+---
+
+  #### 📊 **与其他系统集成**
+
+  ```mermaid
+  flowchart TD
+      Input[鼠标移动事件] --> Tick[PlayerTick调用]
+      Tick --> Trace[CursorTrace光线检测]
+      Trace --> Interface[获取敌人接口]
+      Interface --> Check[状态检查]
+      
+      Check -->|新敌人| Highlight[调用高亮接口]
+      Check -->|离开敌人| Unhighlight[调用取消高亮接口]
+      Check -->|同一敌人| NoAction[无操作]
+      
+      Highlight -->|触发| Enemy[敌人视觉效果]
+      Unhighlight -->|触发| Enemy
+  ```
+
+---
+
+  #### ⚠️ **注意事项**
+
+  ##### **性能考虑**
+  - **每帧调用**：确保 `CursorTrace` 逻辑轻量
+  - **射线检测**：使用合适的碰撞通道和复杂度
+  - **接口调用**：虚函数调用有一定开销
+
+  ##### **网络同步**
+  ```cpp
+  // 如果是多人游戏，需要考虑
+  bReplicates = true;  // 已启用复制
+  // 但高亮效果可能需要服务器验证
+  ```
+
+  ##### **用户体验**
+  - **响应速度**：立即反馈鼠标悬停
+  - **视觉清晰**：高亮效果明显但不刺眼
+  - **逻辑一致**：确保不会同时高亮多个敌人
+
+---
+
+  **核心改进**：通过每帧的鼠标射线检测，实现了智能的敌人高亮系统，为后续的敌人选择和战斗交互奠定了基础。
+
 - 
 
   Post Process Highlight
 
   13:19
+  
+### 👾 **AuraEnemy 敌人实现类**
+
+  #### **多重继承结构**
+  ```cpp
+  class AAuraEnemy : public AAuraCharacterBase, public IEnemyInterface
+  ```
+  - **角色基类**：继承通用的角色功能（武器、移动等）
+  - **敌人接口**：实现高亮交互能力
+
+  #### **碰撞通道配置**
+  ```cpp
+  GetMesh()->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+  GetMesh()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+  ```
+  - **可见性通道阻挡**：确保光标射线能检测到敌人
+  - **相机通道忽略**：防止相机与敌人网格体碰撞
+
+  #### **自定义深度高亮实现**
+  ```cpp
+  GetMesh()->SetRenderCustomDepth(true);
+  GetMesh()->SetCustomDepthStencilValue(CUSTOM_DEPTH_RED);
+  ```
+  - **渲染通道**：使用自定义深度渲染实现轮廓高亮
+  - **模板值**：`CUSTOM_DEPTH_RED` 定义高亮颜色（通常在项目头文件中定义）
+  - **武器同步**：武器组件也应用相同的高亮效果
+
+  **核心**：通过UE的渲染系统实现视觉反馈，将接口逻辑转化为具体的视觉效果。
+
+
+
+### 📚 本章关键语法总结
+
+#### 基础类定义
+```cpp
+UCLASS(Abstract)                     // 声明为抽象类，不可直接实例化
+class GAS_AURA_API AAuraCharacterBase : public ACharacter
+GENERATED_BODY()                     // UE反射系统必需宏
+UPROPERTY(EditAnywhere, Category="Input") // 编辑器可见属性
+TObjectPtr<USkeletalMeshComponent> Weapon  // UE5安全指针
+```
+
+#### 组件创建与设置
+```cpp
+PrimaryActorTick.bCanEverTick = false;   // 禁用Actor Tick
+CreateDefaultSubobject<USkeletalMeshComponent>("Weapon"); // 创建组件
+SetupAttachment(GetMesh(), FName("WeaponHandSocket"));    // 绑定到骨骼
+SetCollisionEnabled(ECollisionEnabled::NoCollision);      // 禁用碰撞
+```
+
+#### 玩家控制器配置
+```cpp
+bReplicates = true;                              // 启用网络复制
+Subsystem->AddMappingContext(AuraContext, 0);     // 添加输入映射（0=优先级）
+bShowMouseCursor = true;                          // 显示鼠标光标
+SetInputMode(InputModeData);                      // 设置输入模式
+```
+
+#### 增强输入系统
+```cpp
+UEnhancedInputLocalPlayerSubsystem* Subsystem = 
+    ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
+EnhancedInputComponent->BindAction(
+    MoveAction,                    // 输入动作资源
+    ETriggerEvent::Triggered,      // 触发事件类型
+    this,                          // 目标对象
+    &AAuraPlayerController::Move   // 回调函数指针
+);
+```
+
+#### 角色移动处理
+```cpp
+const FVector2D InputAxisVector = InputActionValue.Get<FVector2D>();  // 获取2D输入
+FRotator YawRotation(0.f, Rotation.Yaw, 0.f);     // 仅保留偏航角
+FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X); // 获取前向向量
+AddMovementInput(ForwardDirection, InputAxisVector.Y); // 应用移动输入
+```
+
+#### 角色运动组件配置
+```cpp
+GetCharacterMovement()->bOrientRotationToMovement = true;  // 朝向移动方向
+GetCharacterMovement()->RotationRate = FRotator(0.f, 400.f, 0.f); // 旋转速度
+GetCharacterMovement()->bConstrainToPlane = true;          // 平面约束
+bUseControllerRotationYaw = false;                         // 禁用控制器旋转影响
+```
+
+#### 接口系统
+```cpp
+UINTERFACE(MinimalAPI)                      // 声明反射接口类
+class UEnemyInterface : public UInterface   // 反射接口类
+class IEnemyInterface                        // 功能接口类
+virtual void HighlightActor() = 0;          // 纯虚函数声明（必须实现）
+```
+
+#### 光标追踪与接口调用
+```cpp
+GetHitResultUnderCursor(ECC_Visibility, false, CursorHit);  // 光标射线检测
+Cast<IEnemyInterface>(CursorHit.GetActor());               // 接口类型转换
+LastActor->UnHighlightActor();                              // 调用接口方法
+ThisActor->HighlightActor();                                // 调用接口方法
+```
+
+#### 自定义深度渲染
+```cpp
+SetRenderCustomDepth(true);                    // 启用自定义深度渲染
+SetCustomDepthStencilValue(CUSTOM_DEPTH_RED);  // 设置模板值（高亮颜色）
+SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);  // 可见性碰撞响应
+SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);     // 相机碰撞忽略
+```
+
+#### 状态管理逻辑
+```cpp
+if (LastActor != nullptr && LastActor != ThisActor)   // 需要取消高亮的情况
+if (ThisActor != nullptr && ThisActor != LastActor)   // 需要高亮的情况
+```
 
 ## 2.Intro to the Gameplay Ability System / 游戏技能系统介绍
 
