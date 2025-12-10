@@ -1562,11 +1562,244 @@ AttributeSet = AuraPlayerState->GetAttributeSet();                      // 保�
 
   12:05
 
+### 🚀 **AuraAttributeSet 属性集升级**
+
+  #### **1. 新增：属性访问器宏定义**
+  ```cpp
+  #define ATTRIBUTE_ACCESSORS(ClassName, PropertyName) \
+      GAMEPLAYATTRIBUTE_PROPERTY_GETTER(ClassName, PropertyName) \
+      GAMEPLAYATTRIBUTE_VALUE_GETTER(PropertyName) \
+      GAMEPLAYATTRIBUTE_VALUE_SETTER(PropertyName) \
+      GAMEPLAYATTRIBUTE_VALUE_INITTER(PropertyName)
+  ```
+
+  ##### **宏展开后的效果**
+  ```cpp
+  // 以Health为例，ATTRIBUTE_ACCESSORS(UAuraAttributeSet, Health) 展开为：
+      
+      // 1. 属性元数据获取器
+      static FGameplayAttribute GetHealthAttribute();
+      
+      // 2. 当前值获取器
+      float GetHealth() const;
+      
+      // 3. 当前值设置器
+      void SetHealth(float NewVal);
+      
+      // 4. 初始值设置器
+      void InitHealth(float NewVal);
+  ```
+
+  #### **2. 属性声明新增宏调用**
+  ```cpp
+  UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Health, Category = "Vital Attributes")
+  FGameplayAttributeData Health;
+  ATTRIBUTE_ACCESSORS(UAuraAttributeSet, Health);  // 新增：为Health生成访问函数
+  ```
+
+  #### **3. 构造函数初始化属性值**
+  ```cpp
+  UAuraAttributeSet::UAuraAttributeSet()
+  {
+      // 使用宏生成的Init函数设置初始值
+      InitHealth(100.f);      // Health初始值 = 100
+      InitMaxHealth(100.f);   // MaxHealth初始值 = 100
+      InitMana(50.f);         // Mana初始值 = 50
+      InitMaxMana(50.f);      // MaxMana初始值 = 50
+  }
+  ```
+
+  ##### **Init函数来源**
+  ```cpp
+  // 来自宏：GAMEPLAYATTRIBUTE_VALUE_INITTER(PropertyName)
+  // 生成函数：InitHealth(float), InitMaxHealth(float)等
+  ```
+
+  #### **4. 生成的访问函数使用示例**
+
+  ##### **获取属性值**
+  ```cpp
+  // 通过宏生成的Get函数
+  float CurrentHealth = GetHealth();        // 获取当前生命值
+  float CurrentMaxHealth = GetMaxHealth();  // 获取最大生命值
+  
+  // 之前的方法（不方便）
+  float OldWay = Health.GetCurrentValue();  // 需要调用GetCurrentValue()
+  ```
+
+  ##### **设置属性值**
+  ```cpp
+  // 通过宏生成的Set函数
+  SetHealth(75.f);    // 设置生命值为75
+  SetMana(30.f);      // 设置魔法值为30
+  
+  // 之前的方法（复杂）
+  FGameplayAttributeData NewHealth;
+  NewHealth.SetCurrentValue(75.f);
+  Health = NewHealth;
+  ```
+
+  #### **5. 宏的功能详解**
+
+  | 宏组件                              | 生成的函数             | 作用                             |
+  | ----------------------------------- | ---------------------- | -------------------------------- |
+  | `GAMEPLAYATTRIBUTE_PROPERTY_GETTER` | `GetHealthAttribute()` | 获取属性的元数据（类型、名称等） |
+  | `GAMEPLAYATTRIBUTE_VALUE_GETTER`    | `GetHealth()`          | 获取属性的当前值（float）        |
+  | `GAMEPLAYATTRIBUTE_VALUE_SETTER`    | `SetHealth(float)`     | 设置属性的当前值                 |
+  | `GAMEPLAYATTRIBUTE_VALUE_INITTER`   | `InitHealth(float)`    | 初始化属性的基础值               |
+
+  #### **6. 代码结构对比**
+
+  ##### **升级前（手动管理）**
+  ```cpp
+  // 获取值
+  float health = Health.GetCurrentValue();
+  
+  // 设置值（复杂）
+  FGameplayAttributeData newHealth;
+  newHealth.SetCurrentValue(100.f);
+  Health = newHealth;
+  
+  // 没有统一的初始化方法
+  ```
+
+  ##### **升级后（宏辅助）**
+  ```cpp
+  // 获取值（简洁）
+  float health = GetHealth();
+  
+  // 设置值（简单）
+  SetHealth(100.f);
+  
+  // 初始化（统一）
+  InitHealth(100.f);  // 构造函数中调用
+  ```
+
+  #### **7. 关键改进总结**
+  1. **代码简化**：宏自动生成Get/Set/Init函数
+  2. **类型安全**：统一的访问接口
+  3. **初始化标准化**：构造函数中统一初始化所有属性
+  4. **可维护性**：属性声明和访问函数绑定在一起
+
+  ##### **使用新宏的优势**
+  ```cpp
+  // 之前：手动编写每个属性的访问函数
+  // 之后：一行宏搞定所有功能
+  // 结果：减少代码量，提高一致性，减少错误
+  ```
+
 - 
 
   Effect Actor
 
   24:20
+
+###  **⚠️ AuraEffectActor 临时效果实现与const_cast问题**
+
+  #### **1. Actor基础结构**
+  ```cpp
+  UCLASS()
+  class GAS_AURA_API AAuraEffectActor : public AActor
+  {
+      // 组件
+      TObjectPtr<UStaticMeshComponent> Mesh;    // 可视网格
+      TObjectPtr<USphereComponent> Sphere;      // 碰撞检测球体
+      
+      // 碰撞回调函数
+      virtual void OnOverlap(...);  // 进入碰撞区域
+      virtual void EndOverlap(...); // 离开碰撞区域
+  };
+  ```
+
+  #### **2. 当前的临时解决方案**
+  ```cpp
+  void AAuraEffectActor::OnOverlap(...)
+  {
+      // 1. 检查OtherActor是否实现了IAbilitySystemInterface
+      if(IAbilitySystemInterface* ASCInterface = Cast<IAbilitySystemInterface>(OtherActor))
+      {
+          // 2. 获取OtherActor的属性集
+          const UAuraAttributeSet* AuraAttributeSet = 
+              Cast<UAuraAttributeSet>(ASCInterface->GetAbilitySystemComponent()
+                  ->GetAttributeSet(UAuraAttributeSet::StaticClass()));
+          
+          // 3. ⚠️ 使用const_cast移除const修饰符（危险操作）
+          UAuraAttributeSet* MutableAuraAttributeSet = 
+              const_cast<UAuraAttributeSet*>(AuraAttributeSet);
+          
+          // 4. 直接修改生命值
+          MutableAuraAttributeSet->SetHealth(AuraAttributeSet->GetHealth() + 25.f);
+          
+          // 5. 销毁自身
+          Destroy();
+      }
+  }
+  ```
+
+  #### **3. const_cast的问题分析**
+
+  ##### **什么是const_cast？**
+  ```cpp
+  // const_cast语法：移除或添加const修饰符
+  const_cast<Type*>(const_pointer);  // 移除const
+  const_cast<const Type*>(pointer);  // 添加const
+  
+  // 当前代码：
+  const UAuraAttributeSet* AuraAttributeSet = ...;  // const指针
+  UAuraAttributeSet* MutableAuraAttributeSet =       // 移除const
+      const_cast<UAuraAttributeSet*>(AuraAttributeSet);
+  ```
+
+  ##### **const_cast的严重问题**
+
+  **问题1：违反const承诺**
+  ```cpp
+  // GetAttributeSet返回const指针的承诺：
+  // "这个对象是只读的，我不会修改它"
+  const UAttributeSet* GetAttributeSet(...) const;
+  
+  // 使用const_cast打破了这个承诺
+  // 可能导致：
+  // 1. 其他代码依赖const保证，现在被破坏
+  // 2. 多线程环境下的数据竞争
+  ```
+
+  **问题2：绕过GAS系统**
+  ```cpp
+  // GAS正确的属性修改方式：
+  ASC->ApplyModToAttribute(Attribute, Modifier);  // 通过ASC系统
+  
+  // 当前错误方式：
+  直接调用 SetHealth()  // 绕过GAS，不会触发：
+  // - 属性变化事件
+  // - UI更新
+  // - 网络复制
+  // - GameplayEffect的后续处理
+  ```
+
+  **问题3：网络同步问题**
+  ```cpp
+  // GAS修改属性会：
+  1. 服务器修改 → 2. 触发复制 → 3. 客户端同步
+  
+  // const_cast直接修改：
+  1. 本地修改 → 2. 网络不同步 → 3. 其他客户端看不到变化
+  ```
+
+  #### **4. 总结：为什么const_cast是坏的**
+
+  | 问题              | 后果                         | 正确做法                  |
+  | ----------------- | ---------------------------- | ------------------------- |
+  | **违反const约定** | 破坏代码安全性，可能导致崩溃 | 使用const正确的方法       |
+  | **绕过GAS系统**   | 不触发事件、UI不更新         | 通过ASC应用GameplayEffect |
+  | **网络不同步**    | 多人游戏不同步               | GAS自动处理网络复制       |
+  | **代码维护困难**  | 难以调试和追踪               | 使用标准GAS流程           |
+
+  **注释中的TODO：**
+  ```cpp
+  //TODO: 将此更改为应用游戏效果，目前使用 const_cast 作为临时解决方案！
+  // 翻译：这只是临时方案，后面要用GameplayEffect重写！
+  ```
 
 - 
 
