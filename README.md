@@ -2117,7 +2117,163 @@ AttributeSet = AuraPlayerState->GetAttributeSet();                      // 保�
 
   32:15
 
-- 
+### 🎮 **Aura UI 系统的初始化流程**
+
+  #### **1. 新增：FWidgetControllerParams 结构体**
+  ```cpp
+  USTRUCT(BlueprintType)
+  struct FWidgetControllerParams
+  {
+      GENERATED_BODY()
+      
+      // 构造函数：接受4个参数
+      FWidgetControllerParams(APlayerController* PC, APlayerState* PS, 
+                             UAbilitySystemComponent* ASC, UAttributeSet* AS)
+          : PlayerController(PC), PlayerState(PS), 
+            AbilitySystemComponent(ASC), AttributeSet(AS) {}
+  
+      // 四个数据源指针
+      TObjectPtr<APlayerController> PlayerController;       // 玩家控制器
+      TObjectPtr<APlayerState> PlayerState;                 // 玩家状态
+      TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent; // GAS组件
+      TObjectPtr<UAttributeSet> AttributeSet;               // 属性集
+  };
+  ```
+  - **作用**：打包UI需要的4个核心数据源
+  - **好处**：一个结构体传递所有参数，代码更简洁
+
+  #### **2. WidgetController参数设置函数**
+  ```cpp
+  void UAuraWidgetController::SetWidgetControllerParams(const FWidgetControllerParams& WCParams)
+  {
+      // 将结构体中的参数赋给成员变量
+      PlayerController = WCParams.PlayerController;
+      PlayerState = WCParams.PlayerState;
+      AbilitySystemComponent = WCParams.AbilitySystemComponent;
+      AttributeSet = WCParams.AttributeSet;
+  }
+  ```
+  - **功能**：一次性设置Controller的所有数据源
+  - **调用时机**：Controller创建后立即调用
+
+  #### **3. HUD中的Controller管理**
+  ```cpp
+  // AuraHUD.h 新增成员
+  private:
+      UPROPERTY()
+      TObjectPtr<UOverlayWidgetController> OverlayWidgetController;  // Controller实例
+      
+      UPROPERTY(EditAnywhere)
+      TSubclassOf<UOverlayWidgetController> OverlayWidgetControllerClass;  // Controller类
+  ```
+
+  #### **4. GetOverlayWidgetController函数（单例模式）**
+  ```cpp
+  UOverlayWidgetController* AAuraHUD::GetOverlayWidgetController(const FWidgetControllerParams& WCParams)
+  {
+      if (OverlayWidgetController == nullptr)  // 如果还没创建
+      {
+          // 1. 创建Controller实例
+          OverlayWidgetController = NewObject<UOverlayWidgetController>(this, OverlayWidgetControllerClass);
+          
+          // 2. 设置数据源参数
+          OverlayWidgetController->SetWidgetControllerParams(WCParams);
+      }
+      return OverlayWidgetController;
+  }
+  ```
+  - **单例模式**：确保整个游戏只有一个OverlayController
+  - **懒加载**：第一次需要时才创建
+
+  #### **5. InitOverlay初始化函数**
+  ```cpp
+  void AAuraHUD::InitOverlay(APlayerController* PC, APlayerState* PS, 
+                             UAbilitySystemComponent* ASC, UAttributeSet* AS)
+  {
+      // 1. 检查类引用是否设置（开发时断言）
+      checkf(OverlayWidgetClass, TEXT("覆层类未初始化，请填写BP_AuraHUD"));
+      checkf(OverlayWidgetControllerClass, TEXT("覆层控制器类未初始化，请填写BP_AuraHUD"));
+      
+      // 2. 创建UI Widget
+      UUserWidget* Widget = CreateWidget<UUserWidget>(GetWorld(), OverlayWidgetClass);
+      OverlayWidget = Cast<UAuraUserWidget>(Widget);
+      
+      // 3. 准备Controller参数
+      const FWidgetControllerParams WidgetControllerParams(PC, PS, ASC, AS);
+      
+      // 4. 获取或创建Controller
+      UOverlayWidgetController* WidgetController = GetOverlayWidgetController(WidgetControllerParams);
+      
+      // 5. 将Controller绑定到Widget
+      OverlayWidget->SetWidgetController(WidgetController);
+      
+      // 6. 显示UI
+      Widget->AddToViewport();
+  }
+  ```
+
+  #### **6. 在玩家角色中初始化UI**
+  ```cpp
+  void AAuraCharacter::InitAbilityActorInfo()
+  {
+      // 1. 获取PlayerState和GAS组件（之前的代码）
+      AAuraPlayerState* AuraPlayerState = GetPlayerState<AAuraPlayerState>();
+      check(AuraPlayerState);
+      AuraPlayerState->GetAbilitySystemComponent()->InitAbilityActorInfo(AuraPlayerState, this);
+      AbilitySystemComponent = AuraPlayerState->GetAbilitySystemComponent();
+      AttributeSet = AuraPlayerState->GetAttributeSet();
+      
+      // 2. 新增：初始化UI系统
+      if (AAuraPlayerController* AuraPlayerController = Cast<AAuraPlayerController>(GetController()))
+      {
+          if (AAuraHUD* AuraHUD = Cast<AAuraHUD>(AuraPlayerController->GetHUD()))
+          {
+              // 调用HUD初始化UI
+              AuraHUD->InitOverlay(AuraPlayerController, AuraPlayerState, 
+                                   AbilitySystemComponent, AttributeSet);
+          }
+      }
+  }
+  ```
+
+  #### **7. 代码执行流程**
+  ```
+  玩家加入游戏 → 角色被控制器拥有(PossessedBy)
+      ↓
+  调用InitAbilityActorInfo()
+      ↓
+  获取PlayerState、ASC、AS
+      ↓
+  通过Controller找到HUD
+      ↓
+  调用HUD.InitOverlay(4个参数)
+      ↓
+  HUD创建Widget和Controller
+      ↓
+  Controller绑定数据源，Widget绑定Controller
+      ↓
+  UI显示在屏幕上
+  ```
+
+  #### **8. Cast操作的作用**
+  ```cpp
+  // 两次Cast确保类型正确：
+  1. Cast<AAuraPlayerController>(GetController())
+     // 确保Controller是Aura自定义的
+  
+  2. Cast<AAuraHUD>(AuraPlayerController->GetHUD())
+     // 确保HUD是Aura自定义的
+  
+  3. Cast<UAuraUserWidget>(Widget)
+     // 确保创建的Widget是Aura自定义的
+  ```
+
+  #### **9. checkf断言函数**
+  ```cpp
+  checkf(OverlayWidgetClass, TEXT("错误信息"));
+  // 作用：开发时检查，如果条件为false则崩溃并显示错误信息
+  // 发布版本中自动移除，不影响性能
+  ```
 
   Broadcasting Initial Values
 
