@@ -824,7 +824,7 @@ Create a multiplayer RPG with Unreal Engine's Gameplay Ability System (GAS)! / �
 
 
 
-### 📚 本章关键语法总结
+### 📚 第一章关键语法总结
 
 #### 基础类定义
 ```cpp
@@ -1213,14 +1213,15 @@ if (ThisActor != nullptr && ThisActor != LastActor)   // 需要高亮的情况
   - **不复制**：具体的属性修改值
   - **适用场景**：AI敌人、小兵（带宽优化）
 
-  #### **3. 复制模式对比表**
-  | 模式        | 复制内容                             | 带宽消耗 | 适用对象               |
-  | ----------- | ------------------------------------ | -------- | ---------------------- |
-  | **Mixed**   | 完整数据（自己）<br>最小数据（他人） | 中等     | 玩家角色               |
-  | **Minimal** | 只复制标签和持续时间                 | 最低     | AI敌人                 |
-  | **Full**    | 完整数据给所有人                     | 最高     | 需要完全同步的特殊角色 |
+  #### **3. 复制模式对比表
+| 复制模式        | 使用场景           | 描述                                                         |
+| --------------- | ------------------ | ------------------------------------------------------------ |
+| Full（完整）    | 单人游戏           | Gameplay Effects 复制到所有客户端                            |
+| Mixed（混合）   | 多人游戏，玩家控制 | Gameplay Effects 仅复制到所属客户端。Gameplay Cues 和 Gameplay Tags 复制到所有客户端。 |
+| Minimal（最小） | 多人游戏，AI控制   | Gameplay Effects 不进行复制。Gameplay Cues 和 Gameplay Tags 复制到所有客户端。 |
 
   #### **设计考虑**
+
   1. **网络优化**：根据角色重要性选择复制模式
   2. **带宽控制**：敌人用Minimal节省服务器资源  
   3. **玩家体验**：本地玩家需要完整数据计算伤害等
@@ -1231,6 +1232,185 @@ if (ThisActor != nullptr && ThisActor != LastActor)   // 需要高亮的情况
   Init Ability Actor Info
 
   22:01
+  
+### 🎮 **GAS 初始化系统**
+
+  #### **1. 敌人角色初始化**
+  ```cpp
+  // AuraEnemy.cpp - BeginPlay()
+  void AAuraEnemy::BeginPlay()
+  {
+      Super::BeginPlay();
+      AbilitySystemComponent->InitAbilityActorInfo(this, this);
+  }
+  ```
+
+  ##### **InitAbilityActorInfo 参数**
+  ```cpp
+  InitAbilityActorInfo(
+      this,  // 第1参数：OwnerActor（拥有者）
+      this   // 第2参数：AvatarActor（化身）
+  );
+  ```
+  - **拥有者**：逻辑上的所有者（敌人自身）
+  - **化身**：实际执行动作的实体（敌人自身）
+  - **敌人场景**：Owner和Avatar都是敌人自己
+
+  #### **2. 玩家角色初始化**
+
+  ##### **服务器端初始化**
+  ```cpp
+  // AuraCharacter.cpp - PossessedBy()
+  void AAuraCharacter::PossessedBy(AController* NewController)
+  {
+      Super::PossessedBy(NewController);
+      InitAbilityActorInfo();  // 服务器初始化
+  }
+  ```
+  - **触发时机**：服务器获得角色控制权时
+  - **典型场景**：玩家加入游戏、重生时
+
+  ##### **客户端初始化**
+  ```cpp
+  // AuraCharacter.cpp - OnRep_PlayerState()
+  void AAuraCharacter::OnRep_PlayerState()
+  {
+      Super::OnRep_PlayerState();
+      InitAbilityActorInfo();  // 客户端初始化
+  }
+  ```
+  - **触发时机**：客户端PlayerState同步完成时
+  - **网络复制**：通过`OnRep_PlayerState`响应复制事件
+
+  #### **3. 玩家ASC初始化实现**
+  ```cpp
+  // AuraCharacter.cpp - InitAbilityActorInfo()
+  void AAuraCharacter::InitAbilityActorInfo()
+  {
+      // 获取PlayerState
+      AAuraPlayerState* AuraPlayerState = GetPlayerState<AAuraPlayerState>();
+      check(AuraPlayerState);  // 断言验证
+      
+      // 初始化ASC
+      AuraPlayerState->GetAbilitySystemComponent()->InitAbilityActorInfo(
+          AuraPlayerState,  // Owner：PlayerState
+          this              // Avatar：角色实体
+      );
+      
+      // 保存引用
+      AbilitySystemComponent = AuraPlayerState->GetAbilitySystemComponent();
+      AttributeSet = AuraPlayerState->GetAttributeSet();
+  }
+  ```
+
+  ##### **玩家参数对比**
+  ```cpp
+  InitAbilityActorInfo(
+      AuraPlayerState,  // Owner：PlayerState（数据持久化）
+      this              // Avatar：角色实体（执行动作）
+  );
+  ```
+
+  #### **4. 初始化时机对比表**
+
+  | 角色类型 | 服务器初始化    | 客户端初始化          | Owner       | Avatar   |
+  | -------- | --------------- | --------------------- | ----------- | -------- |
+  | **玩家** | `PossessedBy()` | `OnRep_PlayerState()` | PlayerState | 角色     |
+  | **敌人** | `BeginPlay()`   | `BeginPlay()`         | 敌人自身    | 敌人自身 |
+
+  #### **5. 关键函数作用**
+
+  ##### **InitAbilityActorInfo()**
+  ```cpp
+  // GAS核心初始化函数
+  ASC->InitAbilityActorInfo(OwnerActor, AvatarActor);
+  ```
+  - **绑定关系**：建立Owner、Avatar与ASC的关联
+  - **激活系统**：使GAS开始工作
+  - **必需调用**：未调用则技能系统无法使用
+
+  ##### **check() 宏**
+  ```cpp
+  check(AuraPlayerState);  // 开发时验证，失败则崩溃
+  ```
+  - **调试辅助**：确保关键对象存在
+  - **发布版本**：自动移除，不影响性能
+
+  #### **设计模式总结**
+  - **玩家**：分离式初始化（Owner=PlayerState, Avatar=角色）
+  - **敌人**：一体化初始化（Owner=Avatar=敌人自身）
+  - **网络同步**：确保两端都正确初始化
+  - **生命周期**：在合适的时机触发初始化
+
+### 📚 第二章关键语法总结
+
+#### GAS核心组件定义
+```cpp
+UCLASS()
+class GAS_AURA_API AAuraPlayerState : public APlayerState  // 玩家状态类
+```
+
+#### 网络更新频率设置
+```cpp
+NetUpdateFrequency = 100.f;  // 设置网络更新频率为100Hz（默认2Hz）
+```
+
+#### GAS接口实现
+```cpp
+class AAuraCharacterBase : public ACharacter, public IAbilitySystemInterface  // 继承GAS接口
+virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;  // 实现接口方法
+```
+
+#### ASC（能力系统组件）创建
+```cpp
+AbilitySystemComponent = CreateDefaultSubobject<UAuraAbilitySystemComponent>("AbilitySystemComponent");
+AbilitySystemComponent->SetIsReplicated(true);  // 启用网络复制
+```
+
+#### AS（属性集）创建
+```cpp
+AttributeSet = CreateDefaultSubobject<UAuraAttributeSet>("AttributeSet");
+```
+
+#### GAS复制模式设置
+```cpp
+AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);     // 玩家：混合模式
+AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);   // 敌人：最小模式
+```
+
+#### GAS初始化系统调用
+```cpp
+ASC->InitAbilityActorInfo(OwnerActor, AvatarActor);  // 核心初始化函数
+```
+
+#### 玩家初始化时机函数
+```cpp
+virtual void PossessedBy(AController* NewController) override;  // 服务器端初始化
+virtual void OnRep_PlayerState() override;                      // 客户端初始化
+```
+
+#### 断言验证宏
+```cpp
+check(AuraPlayerState);  // 开发时验证对象有效性
+```
+
+#### 复制模式枚举值
+```cpp
+EGameplayEffectReplicationMode::Full      // 完整复制（单人游戏）
+EGameplayEffectReplicationMode::Mixed     // 混合复制（玩家控制）
+EGameplayEffectReplicationMode::Minimal   // 最小复制（AI控制）
+```
+
+#### 玩家状态获取
+```cpp
+AAuraPlayerState* AuraPlayerState = GetPlayerState<AAuraPlayerState>();  // 获取玩家状态
+```
+
+#### 组件引用保存
+```cpp
+AbilitySystemComponent = AuraPlayerState->GetAbilitySystemComponent();  // 保存ASC引用
+AttributeSet = AuraPlayerState->GetAttributeSet();                      // 保存AS引用
+```
 
 ## 3.Attributes / 属性
 
@@ -1240,11 +1420,141 @@ if (ThisActor != nullptr && ThisActor != LastActor)   // 需要高亮的情况
 
   06:59
 
+> Attributes are  numerical quantities associated with a given entity in the game, all attributes are floats, they exist within a structure called FGameplayAttributeData.
+>
+> 属性是与游戏中特定实体相关联的数值量，所有属性均为浮点数，它们存在于名为FGameplayAttributeData的结构中。
+
 - 
 
   Health and Mana
 
   17:44
+
+### 🏥 **AuraAttributeSet 属性集实现**
+
+  #### **1. 类定义和属性声明**
+  ```cpp
+  UCLASS()
+  class GAS_AURA_API UAuraAttributeSet : public UAttributeSet
+  {
+      GENERATED_BODY()
+      
+  public:
+      UAuraAttributeSet();
+      
+      virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+      // TArray<FLifetimeProperty>& OutLifetimeProps
+  	// 参数：输出参数，存放所有需要复制的属性信息
+  	// 类型：TArray（动态数组），存储FLifetimeProperty结构
+      
+      // 核心属性声明
+      UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Health, Category = "Vital Attributes")
+      FGameplayAttributeData Health;
+      
+      UFUNCTION()
+      void OnRep_Health(const FGameplayAttributeData& OldHealth) const;
+  };
+  ```
+
+  ##### **代码功能**
+    1. **继承UAttributeSet**：GAS属性系统的基类
+    2. **网络复制配置函数**GetLifetimeReplicatedProps：告诉UE哪些属性需要网络复制
+    3. **声明Health属性**：使用`FGameplayAttributeData`类型存储生命值
+    4. **声明OnRep_Health函数**：属性复制完成时的回调函数
+
+  #### **2. 构造函数实现**
+  ```cpp
+  UAuraAttributeSet::UAuraAttributeSet()
+  {
+      // 空的构造函数，属性初始化使用默认值
+  }
+  ```
+
+  #### **3. 网络复制配置**
+  ```cpp
+  void UAuraAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+  {
+      // 1. 首先调用父类方法
+      Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+      
+      // 2. 注册Health属性进行网络复制
+      DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, Health, COND_None, REPNOTIFY_Always);
+  }
+  ```
+
+  ##### **DOREPLIFETIME_CONDITION_NOTIFY宏解析**
+  ```cpp
+  DOREPLIFETIME_CONDITION_NOTIFY(
+      UAuraAttributeSet,   // 参数1：当前类名
+      Health,              // 参数2：要复制的属性名
+      COND_None,           // 参数3：复制条件（无条件，总是复制）
+      REPNOTIFY_Always     // 参数4：通知策略（总是发送通知）
+  )
+  ```
+
+  ##### **作用**
+  - 告诉UE：`Health`属性需要通过网络同步
+  - 条件`COND_None`：任何情况下都复制
+  - 通知`REPNOTIFY_Always`：属性变化时总是通知
+
+  #### **4. OnRep函数实现**
+  ```cpp
+  void UAuraAttributeSet::OnRep_Health(const FGameplayAttributeData& OldHealth) const
+  {
+      GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, Health, OldHealth);
+  }
+  ```
+
+  ##### **GAMEPLAYATTRIBUTE_REPNOTIFY宏功能**
+  ```cpp
+  // 这个宏内部执行三个操作：
+  // 1. 比较新旧值，触发属性变化事件
+  // 2. 更新UI显示（如果绑定了UI）
+  // 3. 确保属性值正确同步
+  ```
+
+  ##### **OnRep_Health参数**
+  ```cpp
+  const FGameplayAttributeData& OldHealth  // 参数：属性复制前的旧值
+  ```
+
+  #### **5. 完整执行流程**
+
+  ##### **服务器端发生属性变化**
+  ```
+  服务器：
+  1. Health属性值改变（例如：玩家受伤）
+  2. 自动触发网络复制系统
+  3. 通过网络发送Health新值给客户端
+  ```
+
+  ##### **客户端接收属性变化**
+  ```
+  客户端：
+  1. 收到服务器发来的Health新值
+  2. UE自动调用OnRep_Health(OldHealth)
+  3. GAMEPLAYATTRIBUTE_REPNOTIFY宏执行
+     - 记录旧值
+     - 更新新值
+     - 触发属性变化事件
+  4. UI系统收到事件，更新生命条显示
+  ```
+
+  #### **6. 代码结构总结**
+  ```cpp
+  // 每个属性需要三部分：
+  1. 声明属性：UPROPERTY(...) FGameplayAttributeData 属性名;
+  2. 复制注册：DOREPLIFETIME_CONDITION_NOTIFY(类名, 属性名, 条件, 通知策略);
+  3. OnRep函数：void OnRep_属性名(const FGameplayAttributeData& Old值) const;
+  
+  // 对应关系：
+  Health属性  ←→  OnRep_Health函数  ←→  DOREPLIFETIME_CONDITION_NOTIFY注册
+  ```
+
+  #### **7. 核心机制**
+  - **网络复制**：服务器向客户端同步属性值
+  - **回调通知**：属性复制完成后调用指定函数
+  - **自动同步**：GAS系统自动处理属性变化和UI更新
 
 - 
 
