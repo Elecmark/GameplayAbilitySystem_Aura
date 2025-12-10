@@ -2021,6 +2021,96 @@ AttributeSet = AuraPlayerState->GetAttributeSet();                      // 保�
 
   08:14
 
+### 🖥️ **AuraHUD：UI管理系统**
+
+  #### **1. HUD基类继承**
+  ```cpp
+  UCLASS()
+  class GAS_AURA_API AAuraHUD : public AHUD
+  ```
+  - **继承自** `AHUD`：虚幻引擎的HUD基类
+  - **作用**：在游戏屏幕上显示UI
+
+  #### **2. 成员变量声明**
+  ```cpp
+  public:
+      // 当前显示的覆盖层Widget实例
+      UPROPERTY()
+      TObjectPtr<UAuraUserWidget> OverlayWidget;
+  
+  private:
+      // 要创建的Widget的蓝图类（在编辑器中设置）
+      UPROPERTY(EditAnywhere)
+      TSubclassOf<UAuraUserWidget> OverlayWidgetClass;
+  ```
+
+  ##### **变量详细说明**
+  ```cpp
+  // 1. OverlayWidget（实例）
+  TObjectPtr<UAuraUserWidget> OverlayWidget;
+  // 作用：存储已经创建出来的UI对象
+  // 类型：UAuraUserWidget指针
+  
+  // 2. OverlayWidgetClass（类引用）
+  TSubclassOf<UAuraUserWidget> OverlayWidgetClass;
+  // 作用：告诉CreateWidget函数要创建哪个类的UI
+  // 编辑器设置：在AuraHUD的蓝图实例中选择一个Widget蓝图
+  ```
+
+  #### **3. BeginPlay函数实现**
+  ```cpp
+  void AAuraHUD::BeginPlay()
+  {
+      Super::BeginPlay();
+  
+      // 1. 创建Widget实例
+      UUserWidget* Widget = CreateWidget<UUserWidget>(GetWorld(), OverlayWidgetClass);
+      
+      // 2. 将Widget添加到屏幕
+      Widget->AddToViewport();
+  }
+  ```
+
+  ##### **代码执行步骤**
+  ```
+  1. 游戏开始 → 调用BeginPlay()
+  2. 调用父类AHUD的BeginPlay
+  3. CreateWidget创建UI对象
+  4. AddToViewport把UI显示到屏幕上
+  ```
+
+  #### **4. CreateWidget函数详解**
+  ```cpp
+  CreateWidget<UUserWidget>(GetWorld(), OverlayWidgetClass);
+  ```
+  ##### **函数参数**
+  | 参数         | 值                   | 作用             |
+  | ------------ | -------------------- | ---------------- |
+  | **模板参数** | `<UUserWidget>`      | 返回的指针类型   |
+  | **参数1**    | `GetWorld()`         | 当前的游戏世界   |
+  | **参数2**    | `OverlayWidgetClass` | 要创建的Widget类 |
+
+  #### **5. AddToViewport函数**
+  ```cpp
+  Widget->AddToViewport();
+  ```
+  - **功能**：把Widget添加到游戏屏幕
+  - **效果**：玩家可以看到这个UI
+
+  #### **6. 当前代码的逻辑流程**
+  ```mermaid
+  graph LR
+      A[游戏开始] --> B[AAuraHUD::BeginPlay]
+      B --> C[CreateWidget创建UI]
+      C --> D[AddToViewport显示UI]
+      D --> E[玩家看到覆盖层界面]
+  ```
+
+  #### **7. 总结当前代码功能**
+  1. **声明了一个UI类引用**：在编辑器中设置要显示哪个Widget
+  2. **游戏开始时创建UI**：在BeginPlay中实例化Widget
+  3. **显示到屏幕**：通过AddToViewport显示给玩家看
+
 - 
 
   Overlay Widget Controller
