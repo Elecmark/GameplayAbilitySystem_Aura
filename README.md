@@ -1815,11 +1815,193 @@ AttributeSet = AuraPlayerState->GetAttributeSet();                      // 保�
 
   07:36
 
+>View(表现层):
+
+  数据的视觉表现(eg:血条 法力值等等)
+
+  -->AuraUserWidget
+
+  
+
+  (Widget)Controller(控制层):
+
+  作为 View 和 Model 的中介 View想改变视觉表现得通过 Controller 而 Model向 View 传递数据得通过 Controller
+
+  -->AuraWidgetController
+
+  
+
+  Model(数据层):
+
+  相当于数据库 存放Attribute 的值(FGameplayAttribute)
+
+  -->UAuraAttributeSet
+
 - 
 
   Aura User Widget and Widget Controller
 
   10:39
+
+### 🎮 **Aura UI 系统的 MVC 架构实现**
+
+  #### **1. 架构总览**
+  ```mermaid
+  graph TD
+      Model[Model层<br/>UAttributeSet] -->|数据变化| Controller[Controller层<br/>UAuraWidgetController]
+      Controller -->|更新通知| View[View层<br/>UAuraUserWidget]
+      View -->|用户交互| Controller
+  ```
+
+  #### **2. Controller层：UAuraWidgetController**
+  ```cpp
+  UCLASS()
+  class GAS_AURA_API UAuraWidgetController : public UObject
+  {
+      GENERATED_BODY()
+      
+  protected:
+      // 四个核心数据源
+      UPROPERTY(BlueprintReadOnly, Category="WidgetController")
+      TObjectPtr<APlayerController> PlayerController;      // 玩家控制器
+      
+      UPROPERTY(BlueprintReadOnly, Category="WidgetController")
+      TObjectPtr<APlayerState> PlayerState;                // 玩家状态
+      
+      UPROPERTY(BlueprintReadOnly, Category="WidgetController")
+      TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;  // GAS组件
+      
+      UPROPERTY(BlueprintReadOnly, Category="WidgetController")
+      TObjectPtr<UAttributeSet> AttributeSet;              // 属性集
+  };
+  ```
+
+  ##### **四个数据源的作用**
+  ```cpp
+  1. PlayerController: 处理玩家输入、相机控制
+  2. PlayerState: 存储玩家数据（等级、经验等）
+  3. AbilitySystemComponent: 管理技能和属性修改
+  4. AttributeSet: 具体的属性值（生命、魔法等）
+  ```
+
+  #### **3. View层：UAuraUserWidget**
+  ```cpp
+  UCLASS()
+  class GAS_AURA_API UAuraUserWidget : public UUserWidget
+  {
+      GENERATED_BODY()
+      
+  public:
+      // 设置Controller
+      UFUNCTION(BlueprintCallable)
+      void SetWidgetController(UObject* InWidgetController);
+  
+      // Controller引用
+      UPROPERTY(BlueprintReadOnly)
+      TObjectPtr<UObject> WidgetController;
+  
+  protected:
+      // 蓝图事件：Controller设置完成后触发
+      UFUNCTION(BlueprintImplementableEvent)
+      void WidgetControllerSet();
+  };
+  ```
+
+  #### **4. SetWidgetController函数实现**
+  ```cpp
+  void UAuraUserWidget::SetWidgetController(UObject* InWidgetController)
+  {
+      // 1. 保存Controller引用
+      WidgetController = InWidgetController;
+      
+      // 2. 触发蓝图事件
+      WidgetControllerSet();
+  }
+  ```
+
+  ##### **函数调用流程**
+  ```cpp
+  // 在蓝图或C++中调用：
+  AuraUserWidget->SetWidgetController(WidgetController);
+  
+  // 执行顺序：
+  1. 设置WidgetController = 传入的Controller
+  2. 自动调用WidgetControllerSet()事件
+  3. 蓝图中处理数据绑定和UI初始化
+  ```
+
+  #### **5. 蓝图事件：WidgetControllerSet**
+  ```cpp
+  // C++声明（接口）
+  UFUNCTION(BlueprintImplementableEvent)
+  void WidgetControllerSet();
+  
+  // 蓝图实现（举例）：
+  // 1. 获取Controller
+  // 2. 绑定属性变化事件
+  // 3. 初始化UI显示
+  // 4. 设置按钮点击事件
+  ```
+
+  ##### **BlueprintImplementableEvent特性**
+  ```cpp
+  // 这个宏创建的函数：
+  1. 只有声明，没有C++实现
+  2. 必须在蓝图中实现
+  3. 自动生成调用节点
+  4. 无法在C++中直接调用
+  ```
+
+  #### **6. 数据流向示例**
+
+  ##### **生命值更新流程**
+  ```cpp
+  // 1. 模型层变化
+  AttributeSet::Health 值改变（玩家受伤/治疗）
+  
+  // 2. Controller层监听
+  WidgetController监听到Health属性变化
+  
+  // 3. 通知View层
+  WidgetController触发UI更新事件
+  
+  // 4. View层更新
+  AuraUserWidget中的生命条更新显示
+  ```
+
+  #### **7. 使用UObject作为基类的设计考虑**
+  ```cpp
+  // WidgetController类型：
+  TObjectPtr<UObject> WidgetController;  // 基类指针
+  
+  // 为什么用UObject而不是具体类？
+  1. 灵活性：可以传递不同类型的Controller
+  2. 蓝图友好：蓝图中可以Cast为具体类型
+  3. 扩展性：方便添加新的Controller类型
+  ```
+
+  ##### **类型安全转换**
+  ```cpp
+  // 在蓝图中使用：
+  UAuraWidgetController* AuraController = 
+      Cast<UAuraWidgetController>(WidgetController);
+  
+  if (AuraController)
+  {
+      // 安全地使用AuraController
+      float Health = AuraController->GetHealth();
+  }
+  ```
+
+  #### **8. MVC架构优势**
+
+  | 层             | 职责                         | 优势                 |
+  | -------------- | ---------------------------- | -------------------- |
+  | **Model**      | 数据（AttributeSet）         | 数据与显示分离       |
+  | **View**       | UI显示（UserWidget）         | 纯显示逻辑，易于替换 |
+  | **Controller** | 业务逻辑（WidgetController） | 集中处理，易于维护   |
+
+  **总结**：这个MVC架构为UI系统提供了清晰的分层结构，为后续的复杂UI功能（属性面板、技能栏、背包等）奠定了坚实的基础。
 
 - 
 
