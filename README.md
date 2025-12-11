@@ -2423,6 +2423,160 @@ AttributeSet = AuraPlayerState->GetAttributeSet();                      // 保�
 
   11:58
 
+### 📡 **属性变化监听系统**
+
+  #### **1. 新增虚函数 BindCallbacksToDependencies**
+  ```cpp
+  // 基类 UAuraWidgetController
+  virtual void BindCallbacksToDependencies();
+  ```
+  - **作用**：绑定属性变化监听器
+  - **虚函数**：子类重写实现特定监听
+
+  #### **2. 基类实现（空函数）**
+  ```cpp
+  void UAuraWidgetController::BroadcastInitialValues()
+  {
+      // 基类实现为空
+  }
+  void UAuraWidgetController::BindCallbacksToDependencies()
+  {
+      // 基类实现为空
+  }
+  ```
+
+  #### **3. OverlayWidgetController 实现**
+  ```cpp
+  void UOverlayWidgetController::BindCallbacksToDependencies()
+  {
+      // 1. 安全转换为AuraAttributeSet
+      const UAuraAttributeSet* AuraAttributeSet = CastChecked<UAuraAttributeSet>(AttributeSet);
+      
+      // 2. 绑定生命值变化监听
+      AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(
+          AuraAttributeSet->GetHealthAttribute()).AddUObject(this, &UOverlayWidgetController::HealthChanged);
+      
+      // 3. 绑定最大生命值变化监听
+      AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(
+          AuraAttributeSet->GetMaxHealthAttribute()).AddUObject(this, &UOverlayWidgetController::MaxHealthChanged);
+  }
+  ```
+
+  #### **4. 关键函数详解**
+
+  ##### **GetGameplayAttributeValueChangeDelegate**
+  ```cpp
+  // GAS提供的属性变化委托获取函数
+  AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(属性)
+  ```
+  - **参数**：要监听的属性（通过GetHealthAttribute()获取）
+  - **返回**：`FOnGameplayAttributeValueChange`委托
+
+  ##### **AddUObject 绑定函数**
+  ```cpp
+  .AddUObject(this, &UOverlayWidgetController::HealthChanged)
+  ```
+  | 参数                                       | 作用               |
+  | ------------------------------------------ | ------------------ |
+  | `this`                                     | 拥有回调函数的对象 |
+  | `&UOverlayWidgetController::HealthChanged` | 成员函数指针       |
+
+  #### **5. 回调函数实现**
+  ```cpp
+  void UOverlayWidgetController::HealthChanged(const FOnAttributeChangeData& Data) const
+  {
+      OnHealthChanged.Broadcast(Data.NewValue);
+  }
+  
+  void UOverlayWidgetController::MaxHealthChanged(const FOnAttributeChangeData& Data) const
+  {
+      OnMaxHealthChanged.Broadcast(Data.NewValue);
+  }
+  ```
+
+  ##### **FOnAttributeChangeData 结构体**
+  ```cpp
+  // GAS提供的属性变化数据
+  struct FOnAttributeChangeData
+  {
+      float NewValue;      // 新值
+      float OldValue;      // 旧值
+      // 其他相关信息
+  };
+  ```
+
+  #### **6. HUD中的调用时机**
+  ```cpp
+  // GetOverlayWidgetController 函数中
+  UOverlayWidgetController* AAuraHUD::GetOverlayWidgetController(const FWidgetControllerParams& WCParams)
+  {
+      if (OverlayWidgetController == nullptr)
+      {
+          // 1. 创建Controller
+          OverlayWidgetController = NewObject<UOverlayWidgetController>(this, OverlayWidgetControllerClass);
+          
+          // 2. 设置数据源
+          OverlayWidgetController->SetWidgetControllerParams(WCParams);
+          
+          // 3. 新增：绑定属性监听
+          OverlayWidgetController->BindCallbacksToDependencies();
+      }
+      return OverlayWidgetController;
+  }
+  ```
+
+  #### **7. 完整的UI初始化流程**
+  ```
+  1. 创建Widget实例
+  2. 创建Controller实例
+  3. Controller设置数据源参数
+  4. Controller绑定属性监听 ← 新增步骤
+  5. Widget绑定Controller
+  6. Controller广播初始值
+  7. Widget显示到屏幕
+  ```
+
+  #### **8. 工作流程示意图**
+  ```mermaid
+  sequenceDiagram
+      participant ASC as AbilitySystemComponent
+      participant Controller as OverlayWidgetController
+      participant UI as UserWidget
+  
+      Note over ASC,UI: 1. 初始设置
+      Controller->>ASC: GetGameplayAttributeValueChangeDelegate(Health)
+      ASC-->>Controller: 返回委托
+      
+      Note over ASC,UI: 2. 属性变化时
+      ASC->>ASC: Health属性值改变
+      ASC->>Controller: 触发HealthChanged回调
+      Controller->>UI: OnHealthChanged.Broadcast(新值)
+      UI->>UI: 更新生命条显示
+  ```
+
+  #### **9. 属性监听机制详解**
+
+  ##### **委托绑定链**
+  ```cpp
+  // 完整的委托绑定链：
+  1. GAS内部存储属性变化委托
+  2. 通过GetGameplayAttributeValueChangeDelegate获取委托
+  3. 使用AddUObject将成员函数绑定到委托
+  4. 属性变化时，GAS自动调用所有绑定的函数
+  ```
+
+  ##### **实时响应优势**
+  ```cpp
+  // 相比每帧检查的优势：
+  // 旧方式（效率低）：
+  每帧检查：if (CurrentHealth != LastHealth) { 更新UI }
+  
+  // 新方式（事件驱动）：
+  GAS自动通知：属性变化 → 立即更新UI
+  ```
+
+  **核心改进**：从被动轮询变为事件驱动，UI实时响应属性变化，效率更高，响应更快。
+
 - 
 
   Callbacks for Mana Changes
