@@ -824,7 +824,7 @@ Create a multiplayer RPG with Unreal Engine's Gameplay Ability System (GAS)! / �
 
 
 
-### 📚 第一章关键语法总结
+### 📚 第一章关键方法总结
 
 #### 基础类定义
 ```cpp
@@ -1342,7 +1342,7 @@ if (ThisActor != nullptr && ThisActor != LastActor)   // 需要高亮的情况
   - **网络同步**：确保两端都正确初始化
   - **生命周期**：在合适的时机触发初始化
 
-### 📚 第二章关键语法总结
+### 📚 第二章关键方法总结
 
 #### GAS核心组件定义
 ```cpp
@@ -1806,6 +1806,104 @@ AttributeSet = AuraPlayerState->GetAttributeSet();                      // 保�
   Section 4 Quiz
 
   3 问题
+  
+### 📚 第三章关键方法总结
+
+  #### **属性集类定义**
+  ```cpp
+  UCLASS()
+  class UAuraAttributeSet : public UAttributeSet                      // 继承GAS属性集基类
+  ```
+
+  #### **属性声明**
+  ```cpp
+  UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Health, Category = "Vital Attributes")
+  FGameplayAttributeData Health;                                       // 核心属性声明
+  ```
+
+  #### **属性访问器宏**
+  ```cpp
+  #define ATTRIBUTE_ACCESSORS(ClassName, PropertyName)                 // 属性访问器宏定义
+  ATTRIBUTE_ACCESSORS(UAuraAttributeSet, Health)                       // 应用宏到属性
+  ```
+
+  #### **属性初始化**
+  ```cpp
+  InitHealth(100.f)                                                    // 初始化属性值
+  InitMana(50.f)                                                       // 初始化魔法值
+  ```
+
+  #### **属性访问函数**
+  ```cpp
+  GetHealth()                                                          // 获取当前生命值
+  SetHealth(75.f)                                                      // 设置生命值
+  GetHealthAttribute()                                                 // 获取属性元数据
+  ```
+
+  #### **网络复制配置**
+  ```cpp
+  virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override
+  DOREPLIFETIME_CONDITION_NOTIFY(UAuraAttributeSet, Health, COND_None, REPNOTIFY_Always)
+  ```
+
+  #### **复制通知函数**
+  ```cpp
+  UFUNCTION()
+  void OnRep_Health(const FGameplayAttributeData& OldHealth) const     // 属性复制回调
+  GAMEPLAYATTRIBUTE_REPNOTIFY(UAuraAttributeSet, Health, OldHealth)    // 属性变化通知宏
+  ```
+
+  #### **属性数据类型**
+  ```cpp
+  FGameplayAttributeData                                               // GAS属性数据类型
+  ```
+
+  #### **复制条件枚举**
+  ```cpp
+  COND_None                                                            // 无条件复制
+  COND_OwnerOnly                                                       // 仅所有者复制
+  COND_InitialOnly                                                     // 仅初始复制
+  ```
+
+  #### **通知策略枚举**
+  ```cpp
+  REPNOTIFY_Always                                                     // 总是通知
+  REPNOTIFY_OnChanged                                                  // 变化时通知
+  ```
+
+  #### **属性分类**
+  ```cpp
+  Category = "Vital Attributes"                                        // 重要属性分类
+  ```
+
+  #### **危险操作（临时方案）**
+  ```cpp
+  const_cast<UAuraAttributeSet*>(AuraAttributeSet)                     // 移除const修饰符（危险）
+  ```
+
+  #### **属性集获取**
+  ```cpp
+  GetAbilitySystemComponent()->GetAttributeSet(UAuraAttributeSet::StaticClass())
+  ```
+
+  #### **宏生成的函数类型**
+  ```cpp
+  GAMEPLAYATTRIBUTE_PROPERTY_GETTER                                    // 属性元数据获取器
+  GAMEPLAYATTRIBUTE_VALUE_GETTER                                       // 属性值获取器
+  GAMEPLAYATTRIBUTE_VALUE_SETTER                                       // 属性值设置器
+  GAMEPLAYATTRIBUTE_VALUE_INITTER                                      // 属性值初始化器
+  ```
+
+  #### **属性模式**
+  ```cpp
+  Health / MaxHealth                                                   // 当前值/最大值配对模式
+  Mana / MaxMana                                                       // 魔法值配对模式
+  ```
+
+  #### **属性变化响应流程**
+  ```cpp
+  服务器修改 → 网络复制 → 客户端OnRep回调 → GAMEPLAYATTRIBUTE_REPNOTIFY → UI更新
+  ```
 
 ## 4.RPG Game UI / RPG游戏用户界面
 
@@ -1816,26 +1914,22 @@ AttributeSet = AuraPlayerState->GetAttributeSet();                      // 保�
   07:36
 
 >View(表现层):
+>
+>  数据的视觉表现(eg:血条 法力值等等)
+>
+>  -->AuraUserWidget  
 
-  数据的视觉表现(eg:血条 法力值等等)
+>  (Widget)Controller(控制层):
+>
+>  作为 View 和 Model 的中介 View想改变视觉表现得通过 Controller 而 Model向 View 传递数据得通过 Controller
+>
+>  -->AuraWidgetController
 
-  -->AuraUserWidget
-
-  
-
-  (Widget)Controller(控制层):
-
-  作为 View 和 Model 的中介 View想改变视觉表现得通过 Controller 而 Model向 View 传递数据得通过 Controller
-
-  -->AuraWidgetController
-
-  
-
-  Model(数据层):
-
-  相当于数据库 存放Attribute 的值(FGameplayAttribute)
-
-  -->UAuraAttributeSet
+>  Model(数据层):
+>
+>  相当于数据库 存放Attribute 的值(FGameplayAttribute)
+>
+>  -->UAuraAttributeSet
 
 - 
 
@@ -2582,6 +2676,182 @@ AttributeSet = AuraPlayerState->GetAttributeSet();                      // 保�
   Callbacks for Mana Changes
 
   11:02
+  
+### 🔄 **扩展Mana属性监听**
+
+  #### **1. 新增Mana相关委托**
+  ```cpp
+  // 声明Mana属性变化委托
+  DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnManaChangedSignature, float, NewMana);
+  DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMaxManaChangedSignature, float, NewMaxMana);
+  
+  // 委托变量
+  UPROPERTY(BlueprintAssignable)
+  FOnManaChangedSignature OnManaChanged;          // 魔法值变化委托
+  
+  UPROPERTY(BlueprintAssignable)
+  FOnMaxManaChangedSignature OnMaxManaChanged;    // 最大魔法值变化委托
+  ```
+
+  #### **2. 新增回调函数**
+  ```cpp
+  // 魔法值变化回调
+  void ManaChanged(const FOnAttributeChangeData& Data) const;
+  void MaxManaChanged(const FOnAttributeChangeData& Data) const;
+  ```
+
+  #### **3. BroadcastInitialValues 扩展**
+  ```cpp
+  void UOverlayWidgetController::BroadcastInitialValues()
+  {
+      const UAuraAttributeSet* AuraAttributeSet = CastChecked<UAuraAttributeSet>(AttributeSet);
+      
+      // 原有：生命值
+      OnHealthChanged.Broadcast(AuraAttributeSet->GetHealth());
+      OnMaxHealthChanged.Broadcast(AuraAttributeSet->GetMaxHealth());
+      
+      // 新增：魔法值
+      OnManaChanged.Broadcast(AuraAttributeSet->GetMana());
+      OnMaxManaChanged.Broadcast(AuraAttributeSet->GetMaxMana());
+  }
+  ```
+
+  #### **4. BindCallbacksToDependencies 扩展**
+  ```cpp
+  void UOverlayWidgetController::BindCallbacksToDependencies()
+  {
+      const UAuraAttributeSet* AuraAttributeSet = CastChecked<UAuraAttributeSet>(AttributeSet);
+      
+      // 原有：生命值监听
+      AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(
+          AuraAttributeSet->GetHealthAttribute()).AddUObject(this, &UOverlayWidgetController::HealthChanged);
+      
+      // 新增：魔法值监听
+      AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(
+          AuraAttributeSet->GetManaAttribute()).AddUObject(this, &UOverlayWidgetController::ManaChanged);
+      
+      // 最大值的监听（同理）
+  }
+  ```
+
+  #### **5. 回调函数实现**
+  ```cpp
+  // 魔法值变化回调
+  void UOverlayWidgetController::ManaChanged(const FOnAttributeChangeData& Data) const
+  {
+      OnManaChanged.Broadcast(Data.NewValue);
+  }
+  
+  void UOverlayWidgetController::MaxManaChanged(const FOnAttributeChangeData& Data) const
+  {
+      OnMaxManaChanged.Broadcast(Data.NewValue);
+  }
+  ```
+
+  **总结**：完全复制了Health属性的监听模式，为Mana属性建立了相同的监听机制，UI现在可以实时响应生命值和魔法值的变化。
+
+### 📚 第四章关键方法总结
+
+#### **MVC架构定义**
+```cpp
+UCLASS()
+class UAuraWidgetController : public UObject                     // Controller层
+UCLASS()
+class UAuraUserWidget : public UUserWidget                       // View层
+UCLASS()
+class UAuraAttributeSet : public UAttributeSet                   // Model层
+```
+
+#### **数据传递结构体**
+```cpp
+USTRUCT(BlueprintType)
+struct FWidgetControllerParams                                   // UI参数打包
+FWidgetControllerParams(APlayerController*, APlayerState*, UAbilitySystemComponent*, UAttributeSet*)
+```
+
+#### **WidgetController参数设置**
+```cpp
+void SetWidgetControllerParams(const FWidgetControllerParams& WCParams)  // 设置4个数据源
+```
+
+#### **UI创建与管理**
+```cpp
+CreateWidget<T>(GetWorld(), WidgetClass)                        // 创建Widget实例
+Widget->AddToViewport()                                         // 显示到屏幕
+Cast<T>(指针)                                                   // 安全类型转换
+```
+
+#### **HUD单例Controller模式**
+```cpp
+UOverlayWidgetController* GetOverlayWidgetController(const FWidgetControllerParams&)  // 单例获取
+if (Controller == nullptr) Controller = NewObject<T>(this, ControllerClass)           // 懒加载创建
+```
+
+#### **属性变化委托声明**
+```cpp
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHealthChangedSignature, float, NewHealth)
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnManaChangedSignature, float, NewMana)
+```
+
+#### **委托变量声明**
+```cpp
+UPROPERTY(BlueprintAssignable)
+FOnHealthChangedSignature OnHealthChanged                       // 蓝图可绑定委托
+```
+
+#### **虚函数框架**
+```cpp
+virtual void BroadcastInitialValues()                           // 广播初始值
+virtual void BindCallbacksToDependencies()                      // 绑定属性监听
+```
+
+#### **属性值获取**
+```cpp
+AuraAttributeSet->GetHealth()                                   // 获取生命值
+AuraAttributeSet->GetMana()                                     // 获取魔法值
+```
+
+#### **属性变化监听绑定**
+```cpp
+AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(属性)
+    .AddUObject(this, &UOverlayWidgetController::回调函数)      // 绑定属性变化回调
+```
+
+#### **属性变化回调函数**
+```cpp
+void HealthChanged(const FOnAttributeChangeData& Data) const    // 属性变化响应
+OnHealthChanged.Broadcast(Data.NewValue)                        // 广播新值
+```
+
+#### **开发调试函数**
+```cpp
+checkf(条件, TEXT("错误信息"))                                 // 开发时断言检查
+CastChecked<T>(指针)                                           // 安全转换（失败则断言）
+```
+
+#### **蓝图事件声明**
+```cpp
+UFUNCTION(BlueprintImplementableEvent)
+void WidgetControllerSet()                                      // 蓝图实现的事件
+```
+
+#### **WidgetController设置**
+```cpp
+void SetWidgetController(UObject* InWidgetController)           // 设置Controller引用
+WidgetControllerSet()                                           // 触发蓝图事件
+```
+
+#### **UI初始化流程函数**
+```cpp
+void InitOverlay(APlayerController*, APlayerState*, UAbilitySystemComponent*, UAttributeSet*)
+void InitAbilityActorInfo()                                     // 角色GAS初始化
+```
+
+#### **数据类型与指针**
+```cpp
+TObjectPtr<T>                                                   // UE5安全对象指针
+TSubclassOf<T>                                                  // 类型安全的类引用
+```
 
 ## 5.Gameplay Effects / 游戏效果
 
