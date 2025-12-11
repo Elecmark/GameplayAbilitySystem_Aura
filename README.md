@@ -2275,9 +2275,147 @@ AttributeSet = AuraPlayerState->GetAttributeSet();                      // 保�
   // 发布版本中自动移除，不影响性能
   ```
 
+- 
+
   Broadcasting Initial Values
 
   25:37
+
+### 📢 **广播初始值系统**
+
+  #### **1. 新增虚函数 BroadcastInitialValues**
+  ```cpp
+  // 基类 UAuraWidgetController
+  virtual void BroadcastInitialValues();
+  ```
+  - **作用**：通知UI显示属性的初始值
+  - **虚函数**：子类可以重写实现特定逻辑
+
+  #### **2. 基类实现（空函数）**
+  ```cpp
+  void UAuraWidgetController::BroadcastInitialValues()
+  {
+      // 基类不实现具体逻辑
+      // 子类需要重写这个函数
+  }
+  ```
+
+  #### **3. 派生类 UOverlayWidgetController 重写**
+  ```cpp
+  // OverlayWidgetController.h
+  class UOverlayWidgetController : public UAuraWidgetController
+  {
+      GENERATED_BODY()
+  public:
+      virtual void BroadcastInitialValues() override;
+  };
+  ```
+
+  #### **4. BroadcastInitialValues 实现**
+  ```cpp
+  void UOverlayWidgetController::BroadcastInitialValues()
+  {
+      // 1. 安全地转换为AuraAttributeSet
+      const UAuraAttributeSet* AuraAttributeSet = CastChecked<UAuraAttributeSet>(AttributeSet);
+      
+      // 2. 广播生命值初始值
+      OnHealtChanged.Broadcast(AuraAttributeSet->GetHealth());
+      
+      // 3. 广播最大生命值初始值
+      OnHMaxHealtChanged.Broadcast(AuraAttributeSet->GetMaxHealth());
+  }
+  ```
+
+  ##### **关键函数说明**
+  ```cpp
+  // 1. CastChecked
+  CastChecked<UAuraAttributeSet>(AttributeSet)
+  // 作用：安全类型转换，如果转换失败则断言崩溃
+  // 前提：确保AttributeSet确实是UAuraAttributeSet类型
+  
+  // 2. Broadcast函数
+  OnHealtChanged.Broadcast(值);
+  // 作用：通知所有监听这个事件的UI更新显示
+  // 参数：要广播的属性值
+  ```
+
+  #### **5. 委托声明**
+  ```cpp
+  // OverlayWidgetController.h
+  DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHealtChangedSignature, float, NewHealth);
+  DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMaxHealtChangedSignature, float, NewMaxHealth);
+  
+  // 委托变量
+  UPROPERTY(BlueprintAssignable, Category = "GAS|Attributes")
+  FOnHealtChangedSignature OnHealtChanged;  // 生命值变化委托
+  
+  UPROPERTY(BlueprintAssignable, Category = "GAS|Attributes")
+  FOnMaxHealtChangedSignature OnHMaxHealtChanged;  // 最大生命值变化委托
+  ```
+
+  ##### **委托宏解析**
+  ```cpp
+  DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+      FOnHealtChangedSignature,  // 委托类型名
+      float,                     // 参数类型
+      NewHealth                  // 参数名
+  )
+  ```
+
+  #### **6. HUD中的调用时机**
+  ```cpp
+  void AAuraHUD::InitOverlay(...)
+  {
+      // ... 前面创建Widget和Controller的代码
+      
+      // 1. 绑定Controller到Widget
+      OverlayWidget->SetWidgetController(WidgetController);
+      
+      // 2. 新增：广播初始值
+      WidgetController->BroadcastInitialValues();
+      
+      // 3. 显示UI
+      Widget->AddToViewport();
+  }
+  ```
+
+  #### **7. 完整的UI初始化流程**
+  ```
+  1. 创建Widget实例
+  2. 创建Controller实例
+  3. Controller设置数据源参数
+  4. Widget绑定Controller
+  5. Controller广播初始值 ← 新增步骤
+  6. Widget显示到屏幕
+  ```
+
+  #### **8. 为什么需要广播初始值？**
+
+  ##### **问题场景**
+  ```cpp
+  // 如果没有广播初始值：
+  // 1. UI创建时显示默认值（可能是0）
+  // 2. 玩家看到生命条为空
+  // 3. 需要等待属性变化事件才能看到正确值
+  
+  // 有了广播初始值：
+  // 1. UI一创建就显示正确的当前值
+  // 2. 玩家立即看到正确的生命值和魔法值
+  ```
+
+  #### **9. 广播的具体作用**
+  ```cpp
+  // OnHealtChanged.Broadcast(AuraAttributeSet->GetHealth());
+  // 执行过程：
+  1. 获取当前生命值（如：100）
+  2. 触发OnHealtChanged委托
+  3. 所有绑定到这个委托的UI函数被调用
+  4. UI更新显示为100
+  
+  // 蓝图中：
+  // 可以绑定OnHealtChanged事件来更新生命条
+  ```
+
 
 - 
 
