@@ -2867,6 +2867,197 @@ TSubclassOf<T>                                                  // 类型安全�
 
   29:48
 
+### 🎯 **AuraEffectActor 改进：使用GameplayEffect系统**
+
+  #### **1. 类定义改进**
+  ```cpp
+  UCLASS()
+  class GAS_AURA_API AAuraEffectActor : public AActor
+  {
+      GENERATED_BODY()
+      
+  public:
+      AAuraEffectActor();
+      
+  protected:
+      virtual void BeginPlay() override;
+  
+      // 新的应用效果函数
+      UFUNCTION(BlueprintCallable)
+      void ApplyEffectToTarget(AActor* Target, TSubclassOf<UGameplayEffect> GameplayEffectClass);
+  
+      // GameplayEffect类引用
+      UPROPERTY(EditAnywhere, Category="Applied Effects")
+      TSubclassOf<UGameplayEffect> InstantGameplayEffectClass;
+  };
+  ```
+
+  ##### **关键改进**
+  ```cpp
+  // 移除了之前的：
+  // - OnOverlap/EndOverlap碰撞函数
+  // - Mesh和Sphere组件
+  // - const_cast危险操作
+  
+  // 新增了：
+  // 1. ApplyEffectToTarget函数：正确的GAS应用方式
+  // 2. InstantGameplayEffectClass：要应用的GameplayEffect类
+  // 3. 通过蓝图调用，更加灵活
+  ```
+
+  #### **2. ApplyEffectToTarget函数实现**
+  ```cpp
+  void AAuraEffectActor::ApplyEffectToTarget(AActor* Target, TSubclassOf<UGameplayEffect> GameplayEffectClass)
+  {
+      // 1. 获取目标的AbilitySystemComponent
+      UAbilitySystemComponent* TargetASC = 
+          UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Target);
+      
+      if (TargetASC == nullptr) return;  // 如果目标没有ASC，直接返回
+  
+      // 2. 验证GameplayEffectClass是否有效
+      check(GameplayEffectClass);  // 开发时断言检查
+  
+      // 3. 创建效果上下文
+      FGameplayEffectContextHandle EffectContextHandle = TargetASC->MakeEffectContext();
+      EffectContextHandle.AddSourceObject(this);  // 设置效果来源为本Actor
+  
+      // 4. 创建效果规格
+      const FGameplayEffectSpecHandle EffectSpecHandle = 
+          TargetASC->MakeOutgoingSpec(GameplayEffectClass, 1.f, EffectContextHandle);
+  
+      // 5. 应用效果到目标自身
+      TargetASC->ApplyGameplayEffectSpecToSelf(*EffectSpecHandle.Data.Get());
+  }
+  ```
+
+  #### **3. 关键函数详解**
+
+  ##### **GetAbilitySystemComponent**
+  ```cpp
+  UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Target)
+  ```
+  - **作用**：从Actor获取其AbilitySystemComponent
+  - **参数**：`Target` - 要获取ASC的目标Actor
+  - **返回**：目标的ASC指针（可能为nullptr）
+
+  ##### **MakeEffectContext**
+  ```cpp
+  TargetASC->MakeEffectContext()
+  ```
+  - **作用**：创建GameplayEffect的上下文
+  - **上下文包含**：施法者、目标、来源、时间戳等信息
+
+  ##### **AddSourceObject**
+  ```cpp
+  EffectContextHandle.AddSourceObject(this)
+  ```
+  - **作用**：设置效果的来源对象
+  - **用途**：用于追踪谁施加了这个效果
+
+  ##### **MakeOutgoingSpec**
+  ```cpp
+  TargetASC->MakeOutgoingSpec(GameplayEffectClass, 1.f, EffectContextHandle)
+  ```
+  | 参数                  | 作用                       |
+  | --------------------- | -------------------------- |
+  | `GameplayEffectClass` | 要创建的GameplayEffect类型 |
+  | `1.f`                 | 效果的等级（Level）        |
+  | `EffectContextHandle` | 效果上下文                 |
+
+  ##### **ApplyGameplayEffectSpecToSelf**
+  ```cpp
+  TargetASC->ApplyGameplayEffectSpecToSelf(*EffectSpecHandle.Data.Get())
+  ```
+  - **作用**：将GameplayEffect应用到自身
+  - **正确的方法**：通过ASC系统应用，而不是直接修改属性
+
+  #### **4. GameplayEffect应用流程**
+  ```
+  1. 获取目标的ASC
+     ↓
+  2. 验证效果类有效
+     ↓
+  3. 创建效果上下文（设置来源）
+     ↓
+  4. 创建效果规格（包含等级、上下文）
+     ↓
+  5. 应用效果到目标
+     ↓
+  6. GAS系统自动处理：属性修改、网络复制、UI更新等
+  ```
+
+  #### **5. 构造函数的简化**
+  ```cpp
+  AAuraEffectActor::AAuraEffectActor()
+  {
+      PrimaryActorTick.bCanEverTick = false;  // 禁用Tick
+      
+      SetRootComponent(CreateDefaultSubobject<USceneComponent>("SceneRoot"));
+  }
+  ```
+  - **移除了**：Mesh和Sphere组件
+  - **简化了**：只有一个SceneRoot作为根组件
+  - **更灵活**：可以在蓝图中添加需要的组件
+
+  #### **6. 与之前版本的对比**
+
+  ##### **旧版本（错误）**
+  ```cpp
+  // 直接修改属性，绕过GAS
+  const_cast<UAuraAttributeSet*>(AuraAttributeSet)->SetHealth(...);
+  ```
+
+  ##### **新版本（正确）**
+  ```cpp
+  // 通过GAS系统应用效果
+  TargetASC->ApplyGameplayEffectSpecToSelf(...);
+  ```
+
+  ##### **优势对比**
+  | 方面         | 旧版本             | 新版本                               |
+  | ------------ | ------------------ | ------------------------------------ |
+  | **GAS集成**  | 绕过系统           | 完全集成                             |
+  | **网络同步** | 不同步             | 自动同步                             |
+  | **事件触发** | 不触发             | 触发所有相关事件                     |
+  | **安全性**   | 危险（const_cast） | 安全                                 |
+  | **可扩展性** | 固定功能           | 可通过不同GameplayEffect实现不同效果 |
+
+  #### **7. InstantGameplayEffectClass的使用**
+  ```cpp
+  UPROPERTY(EditAnywhere, Category="Applied Effects")
+  TSubclassOf<UGameplayEffect> InstantGameplayEffectClass;
+  ```
+  - **在编辑器中设置**：选择具体的GameplayEffect蓝图
+  - **即时效果**：Instant类型的GameplayEffect（立即生效）
+  - **可配置**：不同的Actor实例可以使用不同的效果
+
+  #### **8. 如何使用这个Actor**
+  ```cpp
+  // 蓝图中：
+  // 1. 创建AuraEffectActor实例
+  // 2. 设置InstantGameplayEffectClass属性
+  // 3. 调用ApplyEffectToTarget函数，传入目标和效果类
+  
+  // 或者直接在蓝图中调用：
+  AuraEffectActor->ApplyEffectToTarget(Player, HealingEffect);
+  ```
+
+  #### **9. 修复的核心问题**
+  ```cpp
+  // 之前注释中的TODO已经实现：
+  // TODO: 将此更改为应用游戏效果，目前使用 const_cast 作为临时解决方案！
+  
+  // 现在：
+  // √ 移除了const_cast危险操作
+  // √ 使用正确的GAS API
+  // √ 支持网络同步
+  // √ 触发所有相关事件
+  // √ 可以通过配置实现不同效果
+  ```
+
+  **总结**：这个改进将效果Actor从危险的临时方案变成了标准的GAS实现，通过GameplayEffect系统实现了安全、可扩展、网络同步的属性修改功能。
+
 - 
 
   Instant Gameplay Effects
